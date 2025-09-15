@@ -15,7 +15,7 @@ GNB_CRYPTO=gnb_crypto
 GNB_CTL=gnb_ctl
 GNB_ES=gnb_es
 GNB_CLI=gnb
-
+GNB_EXPORTER=exporter
 
 include Makefile.inc
 
@@ -28,7 +28,7 @@ GNB_CLI_OBJS =                             \
 
 GNB_ES_OBJS += ./src/unix/unix_platform.o
 
-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 
 
 $(GNB_CTL): $(GNB_CTL_OBJS)
@@ -46,22 +46,25 @@ $(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
 $(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS} ${ZLIB_OBJS}
 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
 
+$(GNB_EXPORTER): $(GNB_EXPORTER_OBJS)
+	${CC} ${CFLAGS} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS} ${CLI_LDFLAGS}
 
 %.o:%.c
 	${CC} ${CFLAGS} -c -o $@ $<
 
 
-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 	mkdir -p         ./bin/
 	cp ${GNB_CLI}    ./bin/
 	cp ${GNB_CTL}    ./bin/
 	cp ${GNB_CRYPTO} ./bin/
 	cp ${GNB_ES}     ./bin/
+	cp ${GNB_EXPORTER} ./bin/
 
 
-clean:	
+clean:
 	find . -name "*.o" -exec rm -f {} \;
-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 	rm -f core
 	rm -f *.exe
 

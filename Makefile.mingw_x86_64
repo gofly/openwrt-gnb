@@ -8,7 +8,7 @@ GNB_CRYPTO=gnb_crypto.exe
 GNB_CTL=gnb_ctl.exe
 GNB_ES=gnb_es.exe
 GNB_CLI=gnb.exe
-
+GNB_EXPORTER=gnb_exporter.exe
 
 include Makefile.inc
 
@@ -23,7 +23,7 @@ GNB_CLI_OBJS =                             \
 
 GNB_ES_OBJS += ./src/mingw/windows_platform.o
 
-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 
 
 ${GNB_CTL}: ${GNB_CTL_OBJS} ./src/mingw/gnb_res.o
@@ -34,13 +34,15 @@ ${GNB_ES}: ${GNB_ES_OBJS} ${CRYPTO_OBJS} ${MINIUPNP_OBJS} ${LIBNATPMP_OBJS}
 	${CC} -o ${GNB_ES} ${GNB_ES_OBJS} ${CRYPTO_OBJS} ${MINIUPNP_OBJS} ${LIBNATPMP_OBJS} ./src/mingw/gnb_res.o ${GNB_ES_LDFLAGS}
 
 
-$(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+${GNB_CRYPTO}: ${CRYPTO_OBJS} ./src/cli/gnb_crypto.o
 	${CC} -o ${GNB_CRYPTO} ./src/cli/gnb_crypto.o ${CRYPTO_OBJS} ${CLI_LDFLAGS}
 
 
 ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS}
 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
 
+${GNB_EXPORTER}: ${GNB_EXPORTER_OBJS}
+	${CC} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS}
 
 %.o:%.c
 	${CC} ${CFLAGS} -c -o $@ $<
@@ -49,16 +51,17 @@ ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJ
 	${WINDRES} ./src/mingw/gnb_res.rc -o ./src/mingw/gnb_res.o
 
 
-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 	mkdir -p         ./bin/
 	cp ${GNB_CLI}    ./bin/
 	cp ${GNB_CTL}    ./bin/
 	cp ${GNB_CRYPTO} ./bin/
 	cp ${GNB_ES}     ./bin/
+	cp ${GNB_EXPORTER} ./bin/
 
 clean:
 	find . -name "*.o" -exec rm -f {} \;
-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
 	rm -f core
 	rm -f *.exe
 
