@@ -110,6 +110,7 @@ void gnb_setup_es_argv(char *es_argv_string);
 #define SET_MEMORY_SCALE               (GNB_OPT_INIT + 51)
 
 #define SET_SAFE_INDEX                 (GNB_OPT_INIT + 52)
+#define SET_FWMARK                     (GNB_OPT_INIT + 53)
 
 gnb_arg_list_t *gnb_es_arg_list;
 
@@ -205,6 +206,7 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
     conf->address_detect_interval_usec = GNB_ADDRESS_DETECT_INTERVAL_USEC;
     conf->full_detect_interval_sec     = GNB_FULL_DETECT_INTERVAL_SEC;
     conf->safe_index = 0;
+    conf->fwmark = 0;
     conf->daemon = 0;
     conf->systemd_daemon = 0;
 
@@ -348,8 +350,10 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
       { "node-log-level",            required_argument,  0,   SET_NODE_LOG_LEVEL },
       { "index-log-level",           required_argument,  0,   SET_INDEX_LOG_LEVEL },
       { "index-service-log-level",   required_argument,  0,   SET_INDEX_SERVICE_LOG_LEVEL },
-      { "node-detect-log-level",     required_argument,  0,   SET_DETECT_LOG_LEVEL },      
-
+      { "node-detect-log-level",     required_argument,  0,   SET_DETECT_LOG_LEVEL },
+      #if defined(__linux__)
+      { "fwmark",                    required_argument,  0,   SET_FWMARK },
+      #endif
 	  { "version",  no_argument, 0, 'v' },
       { "help",     no_argument, 0, 'h' },
 
@@ -445,6 +449,10 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
             break;
         case SET_SAFE_INDEX:
             conf->safe_index = 1;
+            break;
+        case SET_FWMARK:
+            conf->fwmark = (uint32_t)strtoul(optarg, NULL, 10);
+            break;
         case SET_SYSTEMD_DAEMON:
             conf->systemd_daemon = 1;
             break;

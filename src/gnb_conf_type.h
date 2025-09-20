@@ -170,6 +170,8 @@ typedef struct _gnb_conf_t {
 	uint32_t address_detect_interval_usec;
     uint32_t full_detect_interval_sec;
 	uint8_t addr_secure;
+
+	uint32_t fwmark;
 	uint8_t daemon;
 	uint8_t systemd_daemon;
 	uint8_t quiet;

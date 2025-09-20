@@ -18,7 +18,7 @@
 #ifndef GNB_UDP_H
 #define GNB_UDP_H
 
-int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port);
-int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port);
+int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port, int fwmark);
+int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port, int fwmark);
 
 #endif

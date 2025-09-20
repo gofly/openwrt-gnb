@@ -122,9 +122,11 @@ finish:
 void gnb_es_ctx_init(gnb_es_ctx *es_ctx) {
     gnb_worker_t *gnb_worker_mod;
     es_ctx->udp_socket4 = socket(AF_INET, SOCK_DGRAM, 0);
-    gnb_bind_udp_socket_ipv4(es_ctx->udp_socket4, "0.0.0.0", 0);
+    gnb_bind_udp_socket_ipv4(es_ctx->udp_socket4, "0.0.0.0", 0, 0);
+
     es_ctx->udp_socket6 = socket(AF_INET6, SOCK_DGRAM, 0);
-    gnb_bind_udp_socket_ipv6(es_ctx->udp_socket6, "::",      0);
+    gnb_bind_udp_socket_ipv6(es_ctx->udp_socket6, "::", 0, 0);
+
     if ( es_ctx->discover_in_lan_opt && es_ctx->service_opt ) {
         gnb_worker_mod = &gnb_discover_in_lan_worker_mod;
         es_ctx->discover_in_lan_worker = (gnb_worker_t *)malloc(sizeof(gnb_worker_t));
