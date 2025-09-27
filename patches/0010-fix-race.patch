@@ -1,0 +1,89 @@
+From c96fe8fd12bb4a15e09eae0ded622247ca116382 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sun, 28 Sep 2025 02:27:02 +0800
+Subject: [PATCH 10/10] fix race
+
+---
+ src/gnb_primary_worker.c | 37 +++++++++++++++++++++++++++----------
+ 1 file changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/src/gnb_primary_worker.c b/src/gnb_primary_worker.c
+index 55b9f6e..b7797a0 100755
+--- a/src/gnb_primary_worker.c
++++ b/src/gnb_primary_worker.c
+@@ -1012,25 +1012,31 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+ 
+     gnb_pf_core_t *pf_core = primary_worker_ctx->pf_core;
+ 
++    gnb_pf_t *find_pf;
+     gnb_pf_t *pf;
+ 
+     if ( 1==gnb_core->conf->if_dump ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_dump");
+-        gnb_pf_install(primary_worker_ctx->pf_core->pf_install_array, pf);
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_dump");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
++        gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+-    pf = gnb_find_pf_mod_by_name(gnb_core->conf->pf_route);
++    find_pf = gnb_find_pf_mod_by_name(gnb_core->conf->pf_route);
+ 
+-    if ( NULL == pf ) {
++    if ( NULL == find_pf ) {
+         GNB_ERROR1(gnb_core->log, GNB_LOG_ID_CORE, "pf_route '%s' not exist\n", gnb_core->conf->pf_route);
+         exit(1);
+     }
+-
++    pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++    *pf = *find_pf;
+     gnb_pf_install(pf_core->pf_install_array, pf);
+ 
+     if ( 0 != gnb_core->conf->zip_level ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_zip");
+-        gnb_pf_install(pf_core->pf_install_array, pf);        
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_zip");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
++        gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+     if ( !(GNB_PF_BITS_CRYPTO_XOR & gnb_core->conf->pf_bits) && !(GNB_PF_BITS_CRYPTO_ARC4 & gnb_core->conf->pf_bits) ) {
+@@ -1038,19 +1044,30 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+     }
+ 
+     if ( gnb_core->conf->pf_bits & GNB_PF_BITS_CRYPTO_XOR ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_xor");
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_xor");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+     if ( gnb_core->conf->pf_bits & GNB_PF_BITS_CRYPTO_ARC4 ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_arc4");
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_arc4");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+ skip_crypto:
+ 
++    // 为所有新创建的过滤器实例调用初始化函数
++    int i;
++    for (i = 0; i < pf_core->pf_install_array->num; i++) {
++        if (pf_core->pf_install_array->pf[i]->pf_init) {
++            pf_core->pf_install_array->pf[i]->pf_init(gnb_core, pf_core->pf_install_array->pf[i]);
++        }
++    }
++
+     gnb_pf_core_conf(gnb_core, pf_core);
+-    gnb_pf_init(gnb_core, pf_core->pf_install_array);
+     gnb_pf_conf(gnb_core, pf_core->pf_install_array);
+ 
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_MAIN_WORKER, "%s init finish\n", gnb_worker->name);
+-- 
+2.37.1 (Apple Git-137.1)
+
