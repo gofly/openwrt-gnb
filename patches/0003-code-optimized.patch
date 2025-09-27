@@ -1,7 +1,7 @@
-From ad11e8749e19127b8c22bff034c27f0a19d63dd7 Mon Sep 17 00:00:00 2001
+From 6e43d5e013566c71141ecbc5adbd7ad51cdba9bf Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 27 Sep 2025 13:31:21 +0800
-Subject: [PATCH 3/3] code optimized
+Subject: [PATCH 3/4] code optimized
 
 ---
  src/es/gnb_es_broadcast_address.c      |   8 +-
@@ -10,12 +10,12 @@ Subject: [PATCH 3/3] code optimized
  src/gnb_log.h                          | 228 +++++++------------------
  src/gnb_lru32.c                        |  10 +-
  src/gnb_lru32.h                        |   5 +-
- src/gnb_secure_index_service_worker.c  |  16 +-
- src/gnb_secure_index_worker.c          |   9 +-
+ src/gnb_secure_index_service_worker.c  |  22 +--
+ src/gnb_secure_index_worker.c          |  10 +-
  src/packet_filter/gnb_pf_crypto_arc4.c |  38 +++--
  src/packet_filter/gnb_pf_crypto_xor.c  | 109 +++++-------
  src/packet_filter/gnb_pf_dump.c        |  30 +---
- 11 files changed, 166 insertions(+), 300 deletions(-)
+ 11 files changed, 170 insertions(+), 303 deletions(-)
 
 diff --git a/src/es/gnb_es_broadcast_address.c b/src/es/gnb_es_broadcast_address.c
 index 471c89e..5a243ee 100755
@@ -423,15 +423,31 @@ index 3ea210d..5643ecf 100755
  gnb_lru32_node_t* gnb_lru32_hash_get(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len);
  #define GNB_LRU32_HASH_GET(lru,key,key_len)  gnb_lru32_hash_get(lru,key,(uint32_t)key_len);
 diff --git a/src/gnb_secure_index_service_worker.c b/src/gnb_secure_index_service_worker.c
-index 3e2a9f6..91063d5 100755
+index 3e2a9f6..ec3f130 100755
 --- a/src/gnb_secure_index_service_worker.c
 +++ b/src/gnb_secure_index_service_worker.c
-@@ -134,13 +134,8 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+@@ -113,10 +113,10 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+     src_uuid64 = gnb_ntohll(post_addr_frame->node_uuid64);
+     src_node = GNB_HASH32_UINT64_GET_PTR(gnb_core->uuid_node_map, src_uuid64);
  
-     if ( NULL == key_address ) {
+-    if ( NULL==src_node ) {
++    if ( src_node == NULL ) {
+         GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_SERVICE_WORKER, "handle_post_addr_frame error src node not found src=%llu %s\n", src_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
+         return;
+-    }        
++    }
  
--        key_address = (gnb_key_address_t *)alloca( sizeof(gnb_key_address_t) );
+     if ( !ed25519_verify(post_addr_frame->src_sign, (const unsigned char *)&post_addr_frame->data, sizeof(struct post_addr_frame_data), src_node->public_key) ) {
+         GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_SERVICE_WORKER, "handle_post_addr_frame error invalid signature src=%llu %s\n", src_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
+@@ -132,15 +132,10 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+     gnb_address_list_t *address6_list;
+     gnb_address_list_t *address4_list;
+ 
+-    if ( NULL == key_address ) {
 -
+-        key_address = (gnb_key_address_t *)alloca( sizeof(gnb_key_address_t) );
++    if ( key_address == NULL ) {
+ 
 -        memset(key_address,0,sizeof(gnb_key_address_t));
 -
 -        GNB_LRU32_FIXED_STORE(index_service_worker_ctx->lru, post_addr_frame->data.src_key512, 64, key_address);
@@ -464,10 +480,18 @@ index 3e2a9f6..91063d5 100755
  
      if ( AF_INET6 == sockaddress->addr_type ) {
 diff --git a/src/gnb_secure_index_worker.c b/src/gnb_secure_index_worker.c
-index 2c3a1ec..39af05d 100755
+index 2c3a1ec..1d9c775 100755
 --- a/src/gnb_secure_index_worker.c
 +++ b/src/gnb_secure_index_worker.c
-@@ -427,11 +427,13 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+@@ -385,6 +385,7 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+ 
+     if ( NULL==index_node ) {
+         GNB_LOG2(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "handle_push_addr_frame error index nodeid=%llu not found %s\n", index_nodeid, GNB_SOCKETADDRSTR1(node_addr));
++        return;
+     }
+ 
+     if ( !ed25519_verify(push_addr_frame->src_sign, (void *)&push_addr_frame->data, sizeof(struct push_addr_frame_data), index_node->public_key) ) {
+@@ -427,11 +428,13 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
          return;
      }
  
@@ -483,7 +507,7 @@ index 2c3a1ec..39af05d 100755
      memset(dst_address4_list, 0, sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM);
      dst_address4_list->size = GNB_KEY_ADDRESS_NUM;
  
-@@ -616,7 +618,8 @@ static void handle_echo_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+@@ -616,7 +619,8 @@ static void handle_echo_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
          return;
      }
  

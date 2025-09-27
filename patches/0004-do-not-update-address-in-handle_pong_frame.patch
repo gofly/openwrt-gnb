@@ -1,0 +1,44 @@
+From efae5858db772e2d98945416be6a350d48557993 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 27 Sep 2025 14:34:55 +0800
+Subject: [PATCH 4/4] do not update address in handle_pong_frame
+
+---
+ src/gnb_node_worker.c | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/src/gnb_node_worker.c b/src/gnb_node_worker.c
+index be7e5bc..08c3240 100755
+--- a/src/gnb_node_worker.c
++++ b/src/gnb_node_worker.c
+@@ -519,13 +519,6 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+         address_list3 = (gnb_address_list_t *)src_node->available_address6_list3_block;
+         gnb_address_list3_fifo(address_list3, &address_st);
+ 
+-        //只在发生改变的时候才更新
+-        if ( 0 != gnb_cmp_sockaddr_in6(&src_node->udp_sockaddr6, &node_addr->addr.in6) || node_worker_in_data->socket_idx != src_node->socket6_idx ) {
+-            src_node->udp_sockaddr6 = node_addr->addr.in6;
+-            src_node->socket6_idx   = node_worker_in_data->socket_idx;
+-            addr_update = 1;
+-        }
+-
+         src_node->addr6_update_ts_sec = node_worker_ctx->now_time_sec;
+ 
+         if ( dst_ts_usec == src_node->ping_ts_usec ) {
+@@ -568,13 +561,6 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+         address_list3 = (gnb_address_list_t *)src_node->available_address4_list3_block;
+         gnb_address_list3_fifo(address_list3, &address_st);
+ 
+-        //只在发生改变的时候才更新
+-        if ( 0 != gnb_cmp_sockaddr_in(&src_node->udp_sockaddr4, &node_addr->addr.in) || node_worker_in_data->socket_idx != src_node->socket4_idx ) {
+-            src_node->udp_sockaddr4 = node_addr->addr.in;
+-            src_node->socket4_idx   = node_worker_in_data->socket_idx;
+-            addr_update = 1;
+-        }
+-
+         src_node->addr4_update_ts_sec = node_worker_ctx->now_time_sec;
+ 
+         if ( dst_ts_usec == src_node->ping_ts_usec ) {
+-- 
+2.37.1 (Apple Git-137.1)
+
