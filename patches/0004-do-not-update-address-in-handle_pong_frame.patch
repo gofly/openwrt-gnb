@@ -1,7 +1,7 @@
 From efae5858db772e2d98945416be6a350d48557993 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 27 Sep 2025 14:34:55 +0800
-Subject: [PATCH 4/6] do not update address in handle_pong_frame
+Subject: [PATCH 4/7] do not update address in handle_pong_frame
 
 ---
  src/gnb_node_worker.c | 14 --------------
