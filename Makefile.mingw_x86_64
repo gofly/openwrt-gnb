@@ -1,7 +1,7 @@
 CFLAGS=-O2 -I./src -I/usr/x86_64-w64-mingw32/include -I./libs -I./libs/wintun -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -DMINIUPNP_STATICLIB -DNATPMP_STATICLIB
 
 CLI_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex
-GNB_ES_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex
+GNB_ES_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex  -lssl -lcrypto
 
 
 GNB_CRYPTO=gnb_crypto.exe

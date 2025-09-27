@@ -157,6 +157,10 @@ void gnb_start_environment_service(gnb_es_ctx *es_ctx) {
     uint64_t last_dump_address_sec      = 0;
     uint64_t last_broadcast_address_sec = 0;
     uint64_t last_discover_in_lan_sec   = 0;
+
+    // 首次执行时立即运行
+    last_resolv_address_sec = es_ctx->now_time_sec - GNB_RESOLV_INTERVAL_SEC - 1;
+
     gnb_es_setup_env(es_ctx);
     if ( es_ctx->if_up_opt ) {
         gnb_es_if_up(es_ctx);

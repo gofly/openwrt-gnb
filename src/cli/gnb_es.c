@@ -60,6 +60,8 @@ void save_pid(const char *pid_file);
 #define LOG_UDP6                 (GNB_ES_OPT_INIT + 12)
 #define LOG_UDP4                 (GNB_ES_OPT_INIT + 13)
 #define LOG_UDP_TYPE             (GNB_ES_OPT_INIT + 14)
+#define DOH_HOST                 (GNB_ES_OPT_INIT + 15)
+#define DOH_PORT                 (GNB_ES_OPT_INIT + 16)
 
 void gnb_start_environment_service(gnb_es_ctx *es_ctx);
 
@@ -90,6 +92,9 @@ static void show_useage(int argc,char *argv[]) {
 
     printf("      --log-udp4            send log to the address ipv4 default is '127.0.0.1:8666'\n");
     printf("      --log-udp-type        the log udp type 'binary' or 'text' default is 'text'\n");
+
+    printf("      --doh-host <host>     DoH server host (default: dns.alidns.com)\n");
+    printf("      --doh-port <port>     DoH server port (default: 443)\n");
 
     printf("      --help\n");
 
@@ -163,6 +168,10 @@ int main (int argc,char *argv[]) {
     int service_opt = 0;
     gnb_ctl_block_t *ctl_block;
     uint8_t log_udp_type = GNB_LOG_UDP_TYPE_TEXT;
+
+    char *doh_host = NULL;
+    int doh_port = 0;
+
     char log_udp_sockaddress4_string[16 + 1 + sizeof("65535")];
 
     memset(log_udp_sockaddress4_string, 0, 16 + 1 + sizeof("65535"));
@@ -171,35 +180,37 @@ int main (int argc,char *argv[]) {
 
     struct option long_options[] = {
 
-      { "ctl-block",              required_argument, 0, 'b' },
+        { "ctl-block",              required_argument, 0, 'b' },
 
-      { "upnp",                   no_argument,  0, OPT_UPNP },
-      { "upnp-multicase-if",      required_argument,  0, OPT_UPNP_MULTICAST_IF },
-      { "upnp-gateway4",           required_argument,  0, OPT_UPNP_GATEWAY4 },
+        { "upnp",                   no_argument,  0, OPT_UPNP },
+        { "upnp-multicase-if",      required_argument,  0, OPT_UPNP_MULTICAST_IF },
+        { "upnp-gateway4",           required_argument,  0, OPT_UPNP_GATEWAY4 },
 
 
-      { "resolv",                 no_argument,  0, OPT_RESOLV },
-      { "notify-address",         no_argument,  0, OPT_NOTIFY_ADDRESS },
-      { "discover-in-lan",        no_argument,  0, 'L' },
-      { "dump-address",           no_argument,  0, OPT_DUMP_ADDRESS },
-      { "service",                no_argument, 0, 's' },
-      { "daemon",                 no_argument, 0, 'd' },
+        { "resolv",                 no_argument,  0, OPT_RESOLV },
+        { "notify-address",         no_argument,  0, OPT_NOTIFY_ADDRESS },
+        { "discover-in-lan",        no_argument,  0, 'L' },
+        { "dump-address",           no_argument,  0, OPT_DUMP_ADDRESS },
+        { "service",                no_argument, 0, 's' },
+        { "daemon",                 no_argument, 0, 'd' },
 
-      { "pid-file",               required_argument,  0, PID_FILE },
+        { "pid-file",               required_argument,  0, PID_FILE },
 
-      { "wan-address6-file",      required_argument,  0, WAN_ADDRESS6_FILE },
+        { "wan-address6-file",      required_argument,  0, WAN_ADDRESS6_FILE },
 
-      { "if-up",                  no_argument,  0, OPT_IF_UP },
-      { "if-down",                no_argument,  0, OPT_IF_DOWN },
-      { "if-loop",                no_argument,  0, OPT_IF_LOOP },
+        { "if-up",                  no_argument,  0, OPT_IF_UP },
+        { "if-down",                no_argument,  0, OPT_IF_DOWN },
+        { "if-loop",                no_argument,  0, OPT_IF_LOOP },
 
-      { "log-udp6",               optional_argument,  &flag, LOG_UDP6 },
-      { "log-udp4",               optional_argument,  &flag, LOG_UDP4 },
-      { "log-udp-type",           required_argument,  0,     LOG_UDP_TYPE },
+        { "log-udp6",               optional_argument,  &flag, LOG_UDP6 },
+        { "log-udp4",               optional_argument,  &flag, LOG_UDP4 },
+        { "log-udp-type",           required_argument,  0,     LOG_UDP_TYPE },
+        { "doh-host",               required_argument, 0,  DOH_HOST },
+        { "doh-port",               required_argument, 0,  DOH_PORT },
 
-      { "help",                   no_argument, 0, 'h' },
+        { "help",                   no_argument, 0, 'h' },
 
-      { 0, 0, 0, 0 }
+        { 0, 0, 0, 0 }
 
     };
 
@@ -260,6 +271,12 @@ int main (int argc,char *argv[]) {
             } else {
                 log_udp_type = GNB_LOG_UDP_TYPE_TEXT;
             }
+            break;
+        case DOH_HOST:
+            doh_host = optarg;
+            break;
+        case DOH_PORT:
+            doh_port = atoi(optarg);
             break;
         case 'd':
             daemon = 1;
@@ -367,6 +384,18 @@ int main (int argc,char *argv[]) {
 
     es_ctx->daemon = daemon;
     es_ctx->service_opt = service_opt;
+
+    if ( doh_host != NULL ) {
+        es_ctx->doh_host = doh_host;
+    } else {
+        es_ctx->doh_host = "dns.alidns.com";
+    }
+
+    if ( doh_port > 0 ) {
+        es_ctx->doh_port = doh_port;
+    } else {
+        es_ctx->doh_port = 443;
+    }
 
 #ifdef _WIN32
     WSADATA wsaData;

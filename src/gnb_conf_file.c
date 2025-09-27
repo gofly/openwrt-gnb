@@ -34,7 +34,7 @@
 #include "gnb_keys.h"
 #include "gnb_udp.h"
 
-#include "ed25519/ed25519.h"
+#include "gnb_utils.h"
 #include "ed25519/sha512.h"
 
 char * check_domain_name(char *host_string);

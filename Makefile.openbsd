@@ -1,6 +1,15 @@
-CFLAGS=-O2 -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
-CLI_LDFLAGS=-s -L/usr/lib -pthread
-GNB_ES_LDFLAGS=-s -L/usr/lib -pthread
+USE_MBEDTLS ?= 1
+
+CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+
+ifeq ($(USE_MBEDTLS),1)
+CFLAGS += -DWITH_MBEDTLS=1
+GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
+else
+GNB_ES_LDFLAGS += -lssl -lcrypto
+endif
 
 GNB_CRYPTO=gnb_crypto
 GNB_CTL=gnb_ctl

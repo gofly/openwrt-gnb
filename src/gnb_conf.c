@@ -22,24 +22,7 @@
 #include "gnb_conf_type.h"
 #include "gnb.h"
 
-char * check_domain_name(char *host_string) {
-    if ( NULL != strchr(host_string, ':') ) {
-        return NULL;
-    }
-    int i;
-    for( i=0; i<NAME_MAX; i++ ) {
-        if ( '\0' == host_string[i] ) {
-            return NULL;
-        }
-        if ( '.' == host_string[i] ) {
-            continue;
-        }
-        if ( host_string[i] >= 'a' && host_string[i] <= 'z' ) {
-            return host_string;
-        }
-    }
-    return NULL;
-}
+#include "gnb_utils.h"
 
 /*判断 配置行第二列是ip地址 还是node id*/
 char* check_node_route(char *config_line_string) {

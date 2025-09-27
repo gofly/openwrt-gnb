@@ -1,9 +1,8 @@
-CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -Wno-deprecated-non-prototype
+CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
 
 #-D Z_SOLO=0
 CLI_LDFLAGS=-L/usr/lib -pthread
-GNB_ES_LDFLAGS=-L/usr/lib -pthread
-
+GNB_ES_LDFLAGS=-L/usr/lib -pthread -lssl -lcrypto
 
 GNB_CRYPTO=gnb_crypto
 GNB_CTL=gnb_ctl
