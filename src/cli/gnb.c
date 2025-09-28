@@ -42,6 +42,8 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]);
 void primary_process_loop(gnb_core_t *gnb_core);
 extern gnb_pf_t *gnb_pf_mods[];
 extern gnb_arg_list_t *gnb_es_arg_list;
+extern gnb_worker_t gnb_exporter_worker_mod;
+
 extern int is_self_test;
 
 void signal_alrm_handler(int signum) {
@@ -337,6 +339,12 @@ int main (int argc,char *argv[]) {
     } else {
         gnb_core_index_service_start(gnb_core);
     }
+
+    if (gnb_core->conf->exporter_port > 0) {
+        gnb_core->exporter_worker = gnb_worker_init("gnb_exporter_worker", gnb_core);
+        gnb_core->exporter_worker->start(gnb_core->exporter_worker);
+    }
+
     primary_process_loop(gnb_core);
 
     #ifdef _WIN32

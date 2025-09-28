@@ -806,6 +806,17 @@ void local_node_file_config(gnb_conf_t *conf) {
 
         }
 
+        if ( !strncmp(line_buffer, "exporter-port", sizeof("exporter-port")-1) ) {
+
+            num = sscanf(line_buffer, "%32[^ ] %d", field, &conf->exporter_port);
+
+            if ( 2 != num ) {
+                printf("config %s error in [%s]\n", "exporter-port", node_conf_file);
+                exit(1);
+            }
+
+        }
+
     }while(1);
 
     fclose(file);    

@@ -112,6 +112,9 @@ typedef struct _gnb_core_t {
 	gnb_worker_t   *index_service_worker;
 	gnb_worker_t   *detect_worker;
 	gnb_worker_t   *upnp_worker;
+
+	gnb_worker_t   *exporter_worker;
+
 	gnb_worker_ring_t *pf_worker_ring;
 
 	struct timeval now_timeval;

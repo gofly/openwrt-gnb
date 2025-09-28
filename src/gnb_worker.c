@@ -37,6 +37,7 @@ extern gnb_worker_t gnb_detect_worker_mod;
 extern gnb_worker_t gnb_index_service_worker_mod;
 extern gnb_worker_t gnb_secure_index_service_worker_mod;
 extern gnb_worker_t gnb_pf_worker_mod;
+extern gnb_worker_t gnb_exporter_worker_mod;
 
 static gnb_worker_t *gnb_worker_array[] = {
     &gnb_primary_worker_mod,
@@ -47,6 +48,7 @@ static gnb_worker_t *gnb_worker_array[] = {
     &gnb_detect_worker_mod,
     &gnb_node_worker_mod,
     &gnb_pf_worker_mod,
+    &gnb_exporter_worker_mod,
     NULL,
 };
 

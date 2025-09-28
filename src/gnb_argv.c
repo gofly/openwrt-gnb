@@ -112,6 +112,8 @@ void gnb_setup_es_argv(char *es_argv_string);
 #define SET_SAFE_INDEX                 (GNB_OPT_INIT + 52)
 #define SET_FWMARK                     (GNB_OPT_INIT + 53)
 
+#define SET_EXPORTER_PORT              (GNB_OPT_INIT + 54)
+
 gnb_arg_list_t *gnb_es_arg_list;
 
 int is_self_test = 0;
@@ -207,8 +209,10 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
     conf->full_detect_interval_sec     = GNB_FULL_DETECT_INTERVAL_SEC;
     conf->safe_index = 0;
     conf->fwmark = 0;
+    conf->exporter_port = 0; // 0 means disabled
     conf->daemon = 0;
     conf->systemd_daemon = 0;
+
 
     conf->if_drv = GNB_IF_DRV_TYPE_DEFAULT;
 
@@ -351,6 +355,7 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
       { "index-log-level",           required_argument,  0,   SET_INDEX_LOG_LEVEL },
       { "index-service-log-level",   required_argument,  0,   SET_INDEX_SERVICE_LOG_LEVEL },
       { "node-detect-log-level",     required_argument,  0,   SET_DETECT_LOG_LEVEL },
+      { "exporter-port",             required_argument,  0,   SET_EXPORTER_PORT },
       #if defined(__linux__)
       { "fwmark",                    required_argument,  0,   SET_FWMARK },
       #endif

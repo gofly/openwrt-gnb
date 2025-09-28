@@ -82,7 +82,8 @@ GNB_OBJS =                                       \
        ./src/gnb_hash32.o                        \
        ./src/gnb_keys.o                          \
        ./src/gnb_nodeid.o                        \
-       ./libs/hash/murmurhash.o
+       ./libs/hash/murmurhash.o                  \
+       ./src/gnb_exporter_worker.o
 
 
 GNB_PF_OBJS   =                                  \
@@ -136,12 +137,6 @@ GNB_CTL_OBJS =                                   \
        ./src/gnb_mmap.o                          \
        ./src/gnb_nodeid.o                        \
        ./libs/ed25519/sha512.o
-
-GNB_EXPORTER_OBJS =                              \
-       ./src/cli/gnb_exporter.o                  \
-       ./src/gnb_ctl_block.o                     \
-       ./src/gnb_time.o                          \
-       ./src/gnb_mmap.o
 
 GNB_OBJS    += ./src/gnb_mod_register.o
 GNB_ES_OBJS += ./src/es/gnb_es_platform.o

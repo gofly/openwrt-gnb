@@ -1,8 +1,9 @@
 CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
 
 #-D Z_SOLO=0
+LDFLAGS=-lssl -lcrypto
 CLI_LDFLAGS=-L/usr/lib -pthread
-GNB_ES_LDFLAGS=-L/usr/lib -pthread -lssl -lcrypto
+GNB_ES_LDFLAGS=-L/usr/lib -pthread
 
 GNB_CRYPTO=gnb_crypto
 GNB_CTL=gnb_ctl
@@ -21,7 +22,7 @@ GNB_CLI_OBJS =                             \
 
 GNB_ES_OBJS += ./src/unix/unix_platform.o
 
-all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
 
 
 ${GNB_CTL}: ${GNB_CTL_OBJS}
@@ -43,25 +44,22 @@ ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJ
 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
 	strip ${GNB_CLI}
 
-${GNB_EXPORTER}: $(GNB_EXPORTER_OBJS)
-	${CC} ${CFLAGS} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS} ${CLI_LDFLAGS}
-
 %.o:%.c
 	${CC} ${CFLAGS} -c -o $@ $<
 
 
-install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+
+install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
 	mkdir -p         ./bin/
 	cp ${GNB_CLI}    ./bin/
 	cp ${GNB_CTL}    ./bin/
 	cp ${GNB_CRYPTO} ./bin/
 	cp ${GNB_ES}     ./bin/
-	cp ${GNB_EXPORTER} ./bin/
 
 
 clean:
 	find . -name "*.o" -exec rm -f {} \;
-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
 	rm -f core
 	rm -f *.exe
 
