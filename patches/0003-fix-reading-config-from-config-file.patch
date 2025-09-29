@@ -1,7 +1,7 @@
 From 14b27bd7ec91539dac2d753127aea5dcc19d37cf Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Mon, 29 Sep 2025 16:58:25 +0800
-Subject: [PATCH 3/9] fix reading config from config file
+Subject: [PATCH 03/10] fix reading config from config file
 
 ---
  src/gnb_argv.c      | 21 ++++-----------------

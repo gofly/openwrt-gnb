@@ -1,7 +1,7 @@
 From c31761b67c318bc26f52c6ee68a96d734cc0abae Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 27 Sep 2025 15:35:07 +0800
-Subject: [PATCH 6/9] resolve host name via DoH
+Subject: [PATCH 06/10] resolve host name via DoH
 
 ---
  Makefile.Darwin                  |   5 +-

@@ -1,7 +1,7 @@
 From 9560dee5e0eeb900b5dbd7a7c9cbf4973d0f1966 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Mon, 29 Sep 2025 00:15:02 +0800
-Subject: [PATCH 9/9] integrate the exporter into the gnb process.
+Subject: [PATCH 09/10] integrate the exporter into the gnb process.
 
 ---
  Makefile.Darwin           |  14 +-

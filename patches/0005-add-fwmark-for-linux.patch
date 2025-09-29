@@ -1,7 +1,7 @@
 From 98159fd5045de8dc4a1e3e8080aaa0db808fe7fd Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 20 Sep 2025 19:18:41 +0800
-Subject: [PATCH 5/9] add fwmark for linux
+Subject: [PATCH 05/10] add fwmark for linux
 
 ---
  src/es/gnb_environment_service.c |  4 ++--

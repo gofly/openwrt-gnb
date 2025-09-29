@@ -1,7 +1,7 @@
 From d5f2aa7554463cd843d8c75a51e7353bc3aec92d Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 27 Sep 2025 15:37:30 +0800
-Subject: [PATCH 7/9] optimize compile
+Subject: [PATCH 07/10] optimize compile
 
 ---
  Makefile.freebsd | 12 ++++++++++--

@@ -1,0 +1,93 @@
+From aa5c0229e7807330d2366164eccf1f90281e7663 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 27 Sep 2025 22:30:12 +0800
+Subject: [PATCH 10/10] static link mbedtls
+
+---
+ Makefile.Darwin  | 2 +-
+ Makefile.freebsd | 4 ++--
+ Makefile.linux   | 4 ++--
+ Makefile.openbsd | 4 ++--
+ Makefile.openwrt | 4 ++--
+ 5 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/Makefile.Darwin b/Makefile.Darwin
+index fb4afe2..1294b59 100644
+--- a/Makefile.Darwin
++++ b/Makefile.Darwin
+@@ -3,7 +3,7 @@ CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib
+ #-D Z_SOLO=0
+ LDFLAGS=-lssl -lcrypto
+ CLI_LDFLAGS=-L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-L/usr/lib -pthread
++GNB_ES_LDFLAGS=-L/usr/lib -pthread -lssl -lcrypto
+ 
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+diff --git a/Makefile.freebsd b/Makefile.freebsd
+index c9a72d7..dc04bdb 100644
+--- a/Makefile.freebsd
++++ b/Makefile.freebsd
+@@ -6,9 +6,9 @@ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+-GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lmbedtls -lmbedcrypto -lmbedx509 -Wl,-Bdynamic
+ else
+-GNB_ES_LDFLAGS += -lssl -lcrypto -Wl,-Bdynamic
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic
+ endif
+ 
+ ifeq ($(DEBUG),1)
+diff --git a/Makefile.linux b/Makefile.linux
+index 079deae..7bb1118 100644
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -6,9 +6,9 @@ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+-GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lmbedtls -lmbedcrypto -lmbedx509 -Wl,-Bdynamic
+ else
+-GNB_ES_LDFLAGS += -lssl -lcrypto -Wl,-Bdynamic
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic
+ endif
+ 
+ ifeq ($(DEBUG),1)
+diff --git a/Makefile.openbsd b/Makefile.openbsd
+index e085086..b19b629 100644
+--- a/Makefile.openbsd
++++ b/Makefile.openbsd
+@@ -6,9 +6,9 @@ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+-GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lmbedtls -lmbedcrypto -lmbedx509 -Wl,-Bdynamic
+ else
+-GNB_ES_LDFLAGS += -lssl -lcrypto -Wl,-Bdynamic
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic
+ endif
+ 
+ ifeq ($(DEBUG),1)
+diff --git a/Makefile.openwrt b/Makefile.openwrt
+index be126a0..3eb72cb 100644
+--- a/Makefile.openwrt
++++ b/Makefile.openwrt
+@@ -6,9 +6,9 @@ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+-GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lmbedtls -lmbedcrypto -lmbedx509 -Wl,-Bdynamic
+ else
+-GNB_ES_LDFLAGS += -lssl -lcrypto -Wl,-Bdynamic
++GNB_ES_LDFLAGS += -Wl,-Bstatic -lssl -lcrypto -Wl,-Bdynamic
+ endif
+ 
+ ifeq ($(DEBUG),1)
+-- 
+2.37.1 (Apple Git-137.1)
+
