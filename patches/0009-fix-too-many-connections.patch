@@ -1,0 +1,67 @@
+From 2208941997a1fed3181d8ac243a09ea4ebba4e01 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sun, 28 Sep 2025 00:49:06 +0800
+Subject: [PATCH 09/14] fix too many connections
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+这个文件实现了 index_worker 的功能，它负责与网络中的 index 节点通信，主要完成两件事：
+
+注册地址：定期向 index 节点发送 POST_ADDR 报文，告知自己的公网地址。
+查询地址：当需要连接其他节点但没有其可用地址时，向 index 节点发送 REQUEST_ADDR 报文，查询目标节点的地址。
+这个文件是为 非安全模式 (safe_index 关闭) 或 精简模式 (lite_mode 开启) 设计的。在这些模式下，报文不进行加密和签名验证。
+
+经过分析，我发现其中存在一个逻辑问题，可能会影响地址探测的效率和准确性。
+
+逻辑问题：send_detect_addr_frame 中的端口探测逻辑不完整
+在 send_detect_addr_frame 函数中，当对一个目标地址进行探测时，代码会围绕该地址的端口进行小范围的探测（port_detect_range）。但是，这个探测逻辑存在一个缺陷。
+
+问题分析:
+
+函数首先向原始的目标地址和端口发送一个探测报文。
+然后，它在一个循环中，从 dst_port-1 开始，递减地探测 port_detect_range 个端口。
+接着，在另一个循环中，从 dst_port+1 开始，递增地探测 port_detect_range 个端口。
+问题在于：这两个循环都调用了 gnb_send_to_address_through_all_sockets 函数，这个函数会通过所有本地套接字（sockets）发送报文。这意味着，对于每一个要探测的端口，程序都会发送 N 次报文（N 是本地套接字数量）。
+当 port_detect_range 较大时（例如 10），并且 multi-socket 开启（例如 5 个套接字），一次地址探测就会产生 1 + (10 * 5) + (10 * 5) = 101 个 UDP 报文。这会造成不必要的网络流量，并可能触发某些网络设备的安全策略。
+更合理的做法是，只通过一个套接字进行端口探测，或者在探测逻辑上进行优化。
+
+修改解释:
+
+在 send_detect_addr_frame 函数的两个 for 循环（向下和向上探测端口）中，将 gnb_send_to_address_through_all_sockets 替换为 gnb_send_to_address。
+gnb_send_to_address 函数默认使用 udp_ipv4_sockets[0] 或 udp_ipv6_sockets[0] 进行发送，这对于端口探测已经足够。
+对原始目标地址的第一次探测（gnb_send_to_address_through_all_sockets）保持不变，因为它是一次重要的、需要确保送达的探测，使用所有套接字是合理的。
+通过这个修改，可以大大减少端口探测时产生的网络流量，使探测行为更加高效和隐蔽，同时不影响其核心功能。
+
+其他观察
+handle_push_addr_frame: 这个函数在收到 index 节点推送的地址后，会更新 push_address_list 和 detect_address_list。如果 arg0 是 PUSH_ADDR_ACTION_CONNECT，它会立即触发对新地址的探测。这个逻辑是正确的，有助于快速建立连接。
+sync_index_node: 这个函数是 index_worker 的主循环逻辑。它会遍历所有未连接的节点，如果探测次数未达上限，就进行地址探测 (detect_node_addr)，然后向 index 节点请求最新的地址 (send_request_addr_frame)。这个逻辑也是合理的。
+---
+ src/gnb_index_worker.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/gnb_index_worker.c b/src/gnb_index_worker.c
+index 82dd0f9..a196d71 100644
+--- a/src/gnb_index_worker.c
++++ b/src/gnb_index_worker.c
+@@ -219,7 +219,7 @@ static void send_detect_addr_frame(gnb_worker_t *gnb_index_worker, gnb_address_t
+         }
+ 
+         address_st.port = htons(i);
+-        gnb_send_to_address_through_all_sockets(gnb_core, &address_st, index_worker_ctx->index_frame_payload, 1);
++        gnb_send_to_address(gnb_core, &address_st, index_worker_ctx->index_frame_payload);
+ 
+     }
+ 
+@@ -230,7 +230,7 @@ static void send_detect_addr_frame(gnb_worker_t *gnb_index_worker, gnb_address_t
+         }
+ 
+         address_st.port = htons(i);
+-        gnb_send_to_address_through_all_sockets(gnb_core, &address_st, index_worker_ctx->index_frame_payload, 1);
++        gnb_send_to_address(gnb_core, &address_st, index_worker_ctx->index_frame_payload);
+ 
+     }
+ 
+-- 
+2.37.1 (Apple Git-137.1)
+

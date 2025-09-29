@@ -14,6 +14,7 @@ PKG_MAINTAINER:=Lixin Zheng<lixin.zhenglx@gmail.com>
 
 PKG_USE_MIPS16:=0
 PKG_BUILD_PARALLEL:=1
+PKG_BUILD_DEPENDS:=mbedtls
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -22,7 +23,7 @@ define Package/gnb
 	CATEGORY:=Network
 	TITLE:=GNB P2P Virtual Network
 	URL:=https://github.com/gnbdev/opengnb
-	DEPENDS:=+kmod-tun
+	DEPENDS:=+kmod-tun +libmbedtls
 endef
 
 define Package/gnb/description

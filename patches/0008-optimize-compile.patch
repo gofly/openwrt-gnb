@@ -1,0 +1,111 @@
+From b09c0e58d1df387c00531d2fb14d3e9192aa1e5e Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 27 Sep 2025 15:37:30 +0800
+Subject: [PATCH 08/14] optimize compile
+
+---
+ Makefile.freebsd | 12 ++++++++++--
+ Makefile.linux   |  2 +-
+ Makefile.openbsd | 12 ++++++++++--
+ Makefile.openwrt |  5 +++--
+ 4 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/Makefile.freebsd b/Makefile.freebsd
+index 7915480..a72a9fd 100644
+--- a/Makefile.freebsd
++++ b/Makefile.freebsd
+@@ -1,8 +1,8 @@
+ USE_MBEDTLS ?= 1
+ 
+ CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+-CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
++GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+@@ -11,6 +11,14 @@ else
+ GNB_ES_LDFLAGS += -lssl -lcrypto
+ endif
+ 
++ifeq ($(DEBUG),1)
++CFLAGS += -g
++else
++CFLAGS += -Os -flto -DNDEBUG
++CLI_LDFLAGS    += -s
++GNB_ES_LDFLAGS += -s
++endif
++
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+diff --git a/Makefile.linux b/Makefile.linux
+index 5eb1f23..a0161ef 100644
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -15,7 +15,7 @@ endif
+ ifeq ($(DEBUG),1)
+ CFLAGS += -g
+ else
+-CFLAGS += -O2
++CFLAGS += -Os -flto -DNDEBUG
+ CLI_LDFLAGS    += -s
+ GNB_ES_LDFLAGS += -s
+ endif
+diff --git a/Makefile.openbsd b/Makefile.openbsd
+index b53c311..8a717b4 100644
+--- a/Makefile.openbsd
++++ b/Makefile.openbsd
+@@ -1,8 +1,8 @@
+ USE_MBEDTLS ?= 1
+ 
+ CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+-CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
++GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+@@ -11,6 +11,14 @@ else
+ GNB_ES_LDFLAGS += -lssl -lcrypto
+ endif
+ 
++ifeq ($(DEBUG),1)
++CFLAGS += -g
++else
++CFLAGS += -Os -flto -DNDEBUG
++CLI_LDFLAGS    += -s
++GNB_ES_LDFLAGS += -s
++endif
++
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+diff --git a/Makefile.openwrt b/Makefile.openwrt
+index 5b7a8fa..0106b15 100644
+--- a/Makefile.openwrt
++++ b/Makefile.openwrt
+@@ -1,8 +1,8 @@
+ USE_MBEDTLS ?= 1
+ 
+ CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -D GNB_OPENWRT_BUILD=1
+-CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
++GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread -flto
+ 
+ ifeq ($(USE_MBEDTLS),1)
+ CFLAGS += -DWITH_MBEDTLS=1
+@@ -14,6 +14,7 @@ endif
+ ifeq ($(DEBUG),1)
+ CFLAGS += -g
+ else
++CFLAGS += -Os -flto -DNDEBUG
+ CLI_LDFLAGS    += -s
+ GNB_ES_LDFLAGS += -s
+ endif
+-- 
+2.37.1 (Apple Git-137.1)
+

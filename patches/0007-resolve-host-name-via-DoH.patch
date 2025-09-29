@@ -1,0 +1,1609 @@
+From 03349e1cc464b4792dda8d4e460c3445b8ba7c40 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 27 Sep 2025 15:35:07 +0800
+Subject: [PATCH 07/14] resolve host name via DoH
+
+---
+ Makefile.Darwin                  |   5 +-
+ Makefile.freebsd                 |  16 +-
+ Makefile.inc                     |   4 +
+ Makefile.linux                   |   9 +
+ Makefile.mingw_x86_64            |   2 +-
+ Makefile.openbsd                 |  15 +-
+ Makefile.openwrt                 |   9 +-
+ src/cli/gnb_es.c                 |  69 ++++--
+ src/es/gnb_environment_service.c |   3 +
+ src/es/gnb_es_resolv.c           | 255 ++++++++++----------
+ src/es/gnb_es_type.h             |   3 +
+ src/gnb_conf.c                   |  28 +--
+ src/gnb_conf_file.c              |   2 +-
+ src/gnb_http_client.c            | 255 ++++++++++++++++++++
+ src/gnb_http_client.h            |  35 +++
+ src/gnb_utils.c                  |  48 ++++
+ src/gnb_utils.h                  |  27 +++
+ src/jsmn/jsmn.c                  | 386 +++++++++++++++++++++++++++++++
+ src/jsmn/jsmn.h                  | 106 +++++++++
+ 19 files changed, 1095 insertions(+), 182 deletions(-)
+ create mode 100644 src/gnb_http_client.c
+ create mode 100644 src/gnb_http_client.h
+ create mode 100644 src/gnb_utils.c
+ create mode 100644 src/gnb_utils.h
+ create mode 100644 src/jsmn/jsmn.c
+ create mode 100644 src/jsmn/jsmn.h
+
+diff --git a/Makefile.Darwin b/Makefile.Darwin
+index ebda5b1..65f7b5d 100644
+--- a/Makefile.Darwin
++++ b/Makefile.Darwin
+@@ -1,9 +1,8 @@
+-CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -Wno-deprecated-non-prototype
++CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+ 
+ #-D Z_SOLO=0
+ CLI_LDFLAGS=-L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-L/usr/lib -pthread
+-
++GNB_ES_LDFLAGS=-L/usr/lib -pthread -lssl -lcrypto
+ 
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+diff --git a/Makefile.freebsd b/Makefile.freebsd
+index 19eaf5c..7915480 100644
+--- a/Makefile.freebsd
++++ b/Makefile.freebsd
+@@ -1,16 +1,16 @@
+-CFLAGS=-O2 -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+-CLI_LDFLAGS=-s -L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-s -L/usr/lib -pthread
++USE_MBEDTLS ?= 1
+ 
++CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
++CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ 
+-ifeq ($(DEBUG),1)
+-CFLAGS += -g
++ifeq ($(USE_MBEDTLS),1)
++CFLAGS += -DWITH_MBEDTLS=1
++GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
+ else
+-CLI_LDFLAGS    += -s
+-GNB_ES_LDFLAGS += -s
++GNB_ES_LDFLAGS += -lssl -lcrypto
+ endif
+ 
+-
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+diff --git a/Makefile.inc b/Makefile.inc
+index 739dea1..3fa2b07 100644
+--- a/Makefile.inc
++++ b/Makefile.inc
+@@ -64,6 +64,7 @@ GNB_OBJS =                                       \
+        ./src/gnb_conf.o                          \
+        ./src/gnb_conf_file.o                     \
+        ./src/gnb_config_lite.o                   \
++       ./src/gnb_utils.o                         \
+        ./src/gnb_node.o                          \
+        ./src/gnb_udp.o                           \
+        ./src/gnb_payload16.o                     \
+@@ -113,8 +114,11 @@ GNB_ES_OBJS =                                    \
+       ./src/gnb_dir.o                            \
+       ./src/gnb_hash32.o                         \
+       ./src/gnb_conf.o                           \
++      ./src/gnb_utils.o                           \
+       ./src/gnb_arg_list.o                       \
+       ./src/gnb_nodeid.o                         \
++      ./src/gnb_http_client.o                    \
++      ./src/jsmn/jsmn.o                          \
+       ./libs/hash/murmurhash.o
+ 
+ 
+diff --git a/Makefile.linux b/Makefile.linux
+index bb2d88d..5eb1f23 100644
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -1,7 +1,16 @@
++USE_MBEDTLS ?= 1
++
+ CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -D GNB_LINUX_BUILD=1
+ CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ 
++ifeq ($(USE_MBEDTLS),1)
++CFLAGS += -DWITH_MBEDTLS=1
++GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++else
++GNB_ES_LDFLAGS += -lssl -lcrypto
++endif
++
+ 
+ ifeq ($(DEBUG),1)
+ CFLAGS += -g
+diff --git a/Makefile.mingw_x86_64 b/Makefile.mingw_x86_64
+index 410399d..e319a2e 100644
+--- a/Makefile.mingw_x86_64
++++ b/Makefile.mingw_x86_64
+@@ -1,7 +1,7 @@
+ CFLAGS=-O2 -I./src -I/usr/x86_64-w64-mingw32/include -I./libs -I./libs/wintun -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -DMINIUPNP_STATICLIB -DNATPMP_STATICLIB
+ 
+ CLI_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex
+-GNB_ES_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex
++GNB_ES_LDFLAGS=-s -static -L/usr/x86_64-w64-mingw32/lib/ -lwsock32 -lws2_32 -liphlpapi -lpthread -lmingwex  -lssl -lcrypto
+ 
+ 
+ GNB_CRYPTO=gnb_crypto.exe
+diff --git a/Makefile.openbsd b/Makefile.openbsd
+index dce4f3b..b53c311 100644
+--- a/Makefile.openbsd
++++ b/Makefile.openbsd
+@@ -1,6 +1,15 @@
+-CFLAGS=-O2 -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
+-CLI_LDFLAGS=-s -L/usr/lib -pthread
+-GNB_ES_LDFLAGS=-s -L/usr/lib -pthread
++USE_MBEDTLS ?= 1
++
++CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1
++CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
++
++ifeq ($(USE_MBEDTLS),1)
++CFLAGS += -DWITH_MBEDTLS=1
++GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++else
++GNB_ES_LDFLAGS += -lssl -lcrypto
++endif
+ 
+ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+diff --git a/Makefile.openwrt b/Makefile.openwrt
+index e787afd..5b7a8fa 100644
+--- a/Makefile.openwrt
++++ b/Makefile.openwrt
+@@ -1,7 +1,15 @@
++USE_MBEDTLS ?= 1
++
+ CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -D GNB_OPENWRT_BUILD=1
+ CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+ 
++ifeq ($(USE_MBEDTLS),1)
++CFLAGS += -DWITH_MBEDTLS=1
++GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
++else
++GNB_ES_LDFLAGS += -lssl -lcrypto
++endif
+ 
+ ifeq ($(DEBUG),1)
+ CFLAGS += -g
+@@ -68,4 +76,3 @@ clean:
+ 	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+-
+diff --git a/src/cli/gnb_es.c b/src/cli/gnb_es.c
+index d0d4733..5b3f096 100644
+--- a/src/cli/gnb_es.c
++++ b/src/cli/gnb_es.c
+@@ -68,6 +68,8 @@ void save_pid(const char *pid_file);
+ #define LOG_UDP6                 (GNB_ES_OPT_INIT + 12)
+ #define LOG_UDP4                 (GNB_ES_OPT_INIT + 13)
+ #define LOG_UDP_TYPE             (GNB_ES_OPT_INIT + 14)
++#define DOH_HOST                 (GNB_ES_OPT_INIT + 15)
++#define DOH_PORT                 (GNB_ES_OPT_INIT + 16)
+ 
+ 
+ void gnb_start_environment_service(gnb_es_ctx *es_ctx);
+@@ -106,6 +108,9 @@ static void show_useage(int argc,char *argv[]){
+     printf("      --log-udp4            send log to the address ipv4 default is '127.0.0.1:8666'\n");
+     printf("      --log-udp-type        the log udp type 'binary' or 'text' default is 'text'\n");
+ 
++    printf("      --doh-host <host>     DoH server host (default: dns.alidns.com)\n");
++    printf("      --doh-port <port>     DoH server port (default: 443)\n");
++
+     printf("      --help\n");
+ 
+     printf("example:\n");
+@@ -186,6 +191,9 @@ int main (int argc,char *argv[]){
+     gnb_ctl_block_t *ctl_block;
+     uint8_t log_udp_type = GNB_LOG_UDP_TYPE_TEXT;
+ 
++    char *doh_host = NULL;
++    int doh_port = 0;
++
+     char log_udp_sockaddress4_string[16 + 1 + sizeof("65535")];
+ 
+     memset(log_udp_sockaddress4_string, 0, 16 + 1 + sizeof("65535"));
+@@ -194,35 +202,37 @@ int main (int argc,char *argv[]){
+ 
+     struct option long_options[] = {
+ 
+-      { "ctl-block",              required_argument, 0, 'b' },
++        { "ctl-block",              required_argument, 0, 'b' },
+ 
+-      { "upnp",                   no_argument,  0, OPT_UPNP },
+-      { "upnp-multicase-if",      required_argument,  0, OPT_UPNP_MULTICAST_IF },
+-      { "upnp-gateway4",           required_argument,  0, OPT_UPNP_GATEWAY4 },
++        { "upnp",                   no_argument,  0, OPT_UPNP },
++        { "upnp-multicase-if",      required_argument,  0, OPT_UPNP_MULTICAST_IF },
++        { "upnp-gateway4",           required_argument,  0, OPT_UPNP_GATEWAY4 },
+ 
+ 
+-      { "resolv",                 no_argument,  0, OPT_RESOLV },
+-      { "notify-address",         no_argument,  0, OPT_NOTIFY_ADDRESS },
+-      { "discover-in-lan",        no_argument,  0, 'L' },
+-      { "dump-address",           no_argument,  0, OPT_DUMP_ADDRESS },
+-      { "service",                no_argument, 0, 's' },
+-      { "daemon",                 no_argument, 0, 'd' },
++        { "resolv",                 no_argument,  0, OPT_RESOLV },
++        { "notify-address",         no_argument,  0, OPT_NOTIFY_ADDRESS },
++        { "discover-in-lan",        no_argument,  0, 'L' },
++        { "dump-address",           no_argument,  0, OPT_DUMP_ADDRESS },
++        { "service",                no_argument, 0, 's' },
++        { "daemon",                 no_argument, 0, 'd' },
+ 
+-      { "pid-file",               required_argument,  0, PID_FILE },
++        { "pid-file",               required_argument,  0, PID_FILE },
+ 
+-      { "wan-address6-file",      required_argument,  0, WAN_ADDRESS6_FILE },
++        { "wan-address6-file",      required_argument,  0, WAN_ADDRESS6_FILE },
+ 
+-      { "if-up",                  no_argument,  0, OPT_IF_UP },
+-      { "if-down",                no_argument,  0, OPT_IF_DOWN },
+-      { "if-loop",                no_argument,  0, OPT_IF_LOOP },
++        { "if-up",                  no_argument,  0, OPT_IF_UP },
++        { "if-down",                no_argument,  0, OPT_IF_DOWN },
++        { "if-loop",                no_argument,  0, OPT_IF_LOOP },
+ 
+-      { "log-udp6",               optional_argument,  &flag, LOG_UDP6 },
+-      { "log-udp4",               optional_argument,  &flag, LOG_UDP4 },
+-      { "log-udp-type",           required_argument,  0,     LOG_UDP_TYPE },
++        { "log-udp6",               optional_argument,  &flag, LOG_UDP6 },
++        { "log-udp4",               optional_argument,  &flag, LOG_UDP4 },
++        { "log-udp-type",           required_argument,  0,     LOG_UDP_TYPE },
++        { "doh-host",               required_argument, 0,  DOH_HOST },
++        { "doh-port",               required_argument, 0,  DOH_PORT },
+ 
+-      { "help",                   no_argument, 0, 'h' },
++        { "help",                   no_argument, 0, 'h' },
+ 
+-      { 0, 0, 0, 0 }
++        { 0, 0, 0, 0 }
+ 
+     };
+ 
+@@ -303,7 +313,12 @@ int main (int argc,char *argv[]){
+             }
+ 
+             break;
+-
++        case DOH_HOST:
++            doh_host = optarg;
++            break;
++        case DOH_PORT:
++            doh_port = atoi(optarg);
++            break;
+         case 'd':
+             daemon = 1;
+             break;
+@@ -444,6 +459,18 @@ int main (int argc,char *argv[]){
+     es_ctx->daemon = daemon;
+     es_ctx->service_opt = service_opt;
+ 
++    if ( doh_host != NULL ) {
++        es_ctx->doh_host = doh_host;
++    } else {
++        es_ctx->doh_host = "dns.alidns.com";
++    }
++
++    if ( doh_port > 0 ) {
++        es_ctx->doh_port = doh_port;
++    } else {
++        es_ctx->doh_port = 443;
++    }
++
+ #ifdef _WIN32
+     WSADATA wsaData;
+     int err;
+diff --git a/src/es/gnb_environment_service.c b/src/es/gnb_environment_service.c
+index 140692a..773203d 100644
+--- a/src/es/gnb_environment_service.c
++++ b/src/es/gnb_environment_service.c
+@@ -217,6 +217,9 @@ void gnb_start_environment_service(gnb_es_ctx *es_ctx){
+     uint64_t last_broadcast_address_sec = 0;
+     uint64_t last_discover_in_lan_sec   = 0;
+ 
++    // 首次执行时立即运行
++    last_resolv_address_sec = es_ctx->now_time_sec - GNB_RESOLV_INTERVAL_SEC - 1;
++
+     gnb_es_setup_env(es_ctx);
+ 
+     if ( es_ctx->if_up_opt ) {
+diff --git a/src/es/gnb_es_resolv.c b/src/es/gnb_es_resolv.c
+index 9dbc34c..14016a0 100644
+--- a/src/es/gnb_es_resolv.c
++++ b/src/es/gnb_es_resolv.c
+@@ -41,154 +41,161 @@
+ #include "gnb_node_type.h"
+ #include "gnb_address.h"
+ #include "gnb_es_type.h"
++#include "gnb_http_client.h"
++#include "gnb_utils.h"
++#include "jsmn/jsmn.h"
+ 
+ int gnb_test_field_separator(char *config_string);
+ 
+-static char * check_domain_name(char *host_string){
+-
+-    if ( NULL != strchr(host_string, ':') ){
+-        return NULL;
+-    }
+-
+-    int i;
+-
+-    for ( i=0; i<NAME_MAX; i++ ) {
+-
+-        if ( '\0' == host_string[i] ) {
+-            return NULL;
+-        }
+-
+-        if ( '.' == host_string[i] ) {
+-            continue;
+-        }
+-
+-        if ( host_string[i] >= 'a' && host_string[i] <= 'z' ) {
+-            return host_string;
+-        }
+-
+-    }
+-
+-    return NULL;
+-
+-}
+-
+-
+-static void gnb_do_resolv_node_address(gnb_node_t *node, char *host_string, uint16_t port, gnb_log_ctx_t *log){
+-
+-    int ret;
+-
+-    struct addrinfo hints;
+-
+-    memset(&hints, 0, sizeof(struct addrinfo));
+-
+-    hints.ai_family = AF_UNSPEC;
+-    hints.ai_socktype = SOCK_STREAM;
+-    hints.ai_flags = AI_CANONNAME;
+-
+-    struct addrinfo *result;
+-    struct addrinfo *cur;
+-
+-    ret = getaddrinfo(host_string, NULL, &hints, &result);
+-
+-    if ( -1 == ret ) {
+-        return;
+-    }
+-
+-    gnb_address_list_t *resolv_address_list;
++static void gnb_do_resolv_node_address(gnb_es_ctx *es_ctx, gnb_node_t *node, char *host_string, uint16_t port, const char *dns_type){
++    #define MAX_TOKENS 128
++    jsmn_parser p;
++    jsmntok_t t[MAX_TOKENS];
++    int r, i;
+ 
++    char path[512];
++    char response_buf[2048];
++    int response_len;
+     gnb_address_t address_st;
++    gnb_address_list_t *resolv_address_list;
++    gnb_log_ctx_t *log = es_ctx->log;
+ 
+     resolv_address_list = (gnb_address_list_t *)&node->resolv_address_block;
++    
++    GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "resolve [%s] type [%s] via DoH API on %s:%d\n",
++        host_string, dns_type, es_ctx->doh_host, es_ctx->doh_port );
+ 
+-    for ( cur=result; NULL!=cur; cur=cur->ai_next ) {
+-
+-        memset(&address_st, 0, sizeof(gnb_address_t));
+-        address_st.port = htons(port);
+-
+-        switch(cur->ai_addr->sa_family) {
+-
+-            case AF_INET6:
+-
+-                address_st.type = AF_INET6;
+-
+-                memcpy(&address_st.m_address6, &(((struct sockaddr_in6 *)(cur->ai_addr))->sin6_addr), 16);
+-
+-                gnb_address_list_update(resolv_address_list, &address_st);
+-
+-                break;
+-
+-            case AF_INET:
+-
+-                address_st.type = AF_INET;
+-
+-                memcpy(&address_st.m_address4, &(((struct sockaddr_in *)(cur->ai_addr))->sin_addr), 4);
+-
+-                gnb_address_list_update(resolv_address_list, &address_st);
++    // 构建符合Google DoH API规范的请求路径
++    snprintf(path, sizeof(path), "/resolve?name=%s&type=%s", host_string, dns_type);
+ 
+-                break;
+-
+-            default:
+-                break;
+-
+-        }
++    // 调用HTTPS GET请求，使用配置的DoH服务器
++    response_len = gnb_http_get(es_ctx->doh_host, es_ctx->doh_port, 1, path, response_buf, sizeof(response_buf));
+ 
++    if (response_len <= 0) {
++        GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "resolve [%s] failed, response empty\n", host_string);
++        return;
+     }
+ 
+-    freeaddrinfo(result);
+-
+-    gnb_address_t *gnb_address;
+-
+-    int j;
+-
+-    for( j=0; j<resolv_address_list->size; j++ ) {
+-
+-        gnb_address = &resolv_address_list->array[j];
++    jsmn_init(&p);
++    r = jsmn_parse(&p, response_buf, response_len, t, MAX_TOKENS);
++    if (r < 0) {
++        GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "failed to parse JSON: %d\n", r);
++        return;
++    }
+ 
+-        if (0==gnb_address->port) {
+-            continue;
++    // 查找 "Answer" 数组
++    for (i = 1; i < r; i++) {
++        if (t[i].type == JSMN_STRING && (int)strlen("Answer") == t[i].end - t[i].start &&
++            strncmp(response_buf + t[i].start, "Answer", t[i].end - t[i].start) == 0) {
++
++            jsmntok_t *arr_tok = &t[i + 1];
++            if (i + 1 < r && arr_tok->type == JSMN_ARRAY) {
++                int j;
++                int current_tok_idx = i + 2;
++                // 遍历Answer数组中的每个对象
++                for (j = 0; j < arr_tok->size; j++) {
++                    jsmntok_t *obj_tok = &t[current_tok_idx];
++
++                    // 为每个对象初始化type和data
++                    int dns_type = 0;
++                    char ip_str[INET6_ADDRSTRLEN] = {0};
++
++                    int k;
++                    // 遍历对象中的键值对
++                    for (k = 0; k < obj_tok->size; k++) {
++                        jsmntok_t *key_tok = obj_tok + 1 + k * 2;
++                        jsmntok_t *val_tok = key_tok + 1;
++
++                        if (key_tok->type == JSMN_STRING && (int)strlen("data") == key_tok->end - key_tok->start &&
++                            strncmp(response_buf + key_tok->start, "data", key_tok->end - key_tok->start) == 0) {
++                            
++                            int ip_len = val_tok->end - val_tok->start;
++                            if (ip_len < sizeof(ip_str)) {
++                                strncpy(ip_str, response_buf + val_tok->start, ip_len);
++                                ip_str[ip_len] = '\0';
++                            }
++                        } else if (key_tok->type == JSMN_STRING && (int)strlen("type") == key_tok->end - key_tok->start &&
++                            strncmp(response_buf + key_tok->start, "type", key_tok->end - key_tok->start) == 0) {
++                            
++                            char type_str[16];
++                            int type_len = val_tok->end - val_tok->start;
++                            if (type_len < sizeof(type_str)) {
++                                strncpy(type_str, response_buf + val_tok->start, type_len);
++                                type_str[type_len] = '\0';
++                                dns_type = atoi(type_str);
++                            }
++                        }
++                    }
++
++                    // 在处理完一个对象的所有键值对后，根据type和data进行处理
++                    if (ip_str[0] != '\0') {
++                        memset(&address_st, 0, sizeof(gnb_address_t));
++                        address_st.port = htons(port);
++                        if (dns_type == 1) { // A record (IPv4)
++                            if (inet_pton(AF_INET, ip_str, &address_st.m_address4) == 1) {
++                                address_st.type = AF_INET;
++                                gnb_address_list_update(resolv_address_list, &address_st);
++                                GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "update [%s] type [%s]>[%s]\n",
++                                    host_string, "A", GNB_IP_PORT_STR1(&address_st));
++                            }
++                        } else if (dns_type == 28) { // AAAA record (IPv6)
++                            if (inet_pton(AF_INET6, ip_str, &address_st.m_address6) == 1) {
++                                address_st.type = AF_INET6;
++                                gnb_address_list_update(resolv_address_list, &address_st);
++                                GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "update [%s] type [%s]>[%s]\n",
++                                    host_string, "AAAA", GNB_IP_PORT_STR1(&address_st));
++                            }
++                        }
++                    }
++
++                    // Advance to the next object in the array
++                    current_tok_idx += 1 + (obj_tok->size * 2);
++                }
++            }
++            break; 
+         }
+-
+-        GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "resolv [%s]>[%s]\n", host_string, GNB_IP_PORT_STR1(gnb_address));
+-
+     }
+-
+ }
+ 
+-
+ void gnb_resolv_address(gnb_es_ctx *es_ctx){
+-
+-    gnb_log_ctx_t *log = es_ctx->log;
+-
+     char *conf_dir = es_ctx->ctl_block->conf_zone->conf_st.conf_dir;
+-
+     char address_file[PATH_MAX+NAME_MAX];
+ 
+     snprintf(address_file, PATH_MAX+NAME_MAX, "%s/%s", conf_dir, "address.conf");
+ 
+-    FILE *file;
++    // 在解析前清空所有节点的 resolv_address_block
++    int i, j;
++    int node_num = es_ctx->ctl_block->node_zone->node_num;
++    gnb_address_list_t *resolv_address_list;
++    gnb_node_t *node;
++    gnb_address_t *gnb_address;
++    gnb_log_ctx_t *log = es_ctx->log;
+ 
+-    file = fopen(address_file,"r");
++    for (i = 0; i < node_num; i++) {
++        node = &es_ctx->ctl_block->node_zone->node[i];
++        if (node) {
++            resolv_address_list = (gnb_address_list_t *)&node->resolv_address_block;
++            resolv_address_list->num = 0;
++            for( j = 0; j < resolv_address_list->size; j++ ) {
++                gnb_address = &resolv_address_list->array[j];
++                gnb_address->port = 0;
++            }
++        }
++    }
+ 
++    FILE *file;
++    file = fopen(address_file,"r");
+     if ( NULL==file ) {
+         return;
+     }
+ 
+     char line_buffer[1024+1];
+-
+     char attrib_string[16+1];
+-
+     gnb_uuid_t uuid64;
+-
+     char host_string[256+1];
+-
+     uint16_t port = 0;
+-
+-    gnb_node_t *node;
+-
+     int num;
+ 
+-    int ret;
+-
+     do{
+ 
+         num = fscanf(file,"%1024s\n",line_buffer);
+@@ -201,7 +208,7 @@ void gnb_resolv_address(gnb_es_ctx *es_ctx){
+             continue;
+         }
+ 
+-        ret = gnb_test_field_separator(line_buffer);
++        int ret = gnb_test_field_separator(line_buffer);
+ 
+         if ( GNB_CONF_FIELD_SEPARATOR_TYPE_SLASH == ret ) {
+             num = sscanf(line_buffer,"%16[^/]/%llu/%256[^/]/%hu\n", attrib_string, &uuid64, host_string, &port);
+@@ -229,10 +236,25 @@ void gnb_resolv_address(gnb_es_ctx *es_ctx){
+             continue;
+         }
+ 
+-        gnb_do_resolv_node_address(node, host_string, port,log);
+-
++        resolv_address_list = (gnb_address_list_t *)&node->resolv_address_block;
++
++        const char *dns_type = "A";
++        gnb_do_resolv_node_address(es_ctx, node, host_string, port, dns_type);
++        
++        dns_type = "AAAA";
++        gnb_do_resolv_node_address(es_ctx, node, host_string, port, dns_type);
++
++        // print resolv address list
++        for( i = 0; i < resolv_address_list->size; i++ ) {
++            gnb_address = &resolv_address_list->array[i];
++            if (0==gnb_address->port) {
++                continue;
++            }
++    
++            GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "resolved [%s]>[%s]\n", host_string, GNB_IP_PORT_STR1(gnb_address));
++        }
+ 
+-    }while(1);
++    } while(1);
+ 
+     fclose(file);
+ 
+@@ -278,4 +300,3 @@ void gnb_load_wan_ipv6_address(gnb_es_ctx *es_ctx){
+     }
+ 
+ }
+-
+diff --git a/src/es/gnb_es_type.h b/src/es/gnb_es_type.h
+index 25b5220..64b6917 100644
+--- a/src/es/gnb_es_type.h
++++ b/src/es/gnb_es_type.h
+@@ -67,6 +67,9 @@ typedef struct _gnb_es_ctx{
+ 	char *upnp_multicase_if;
+     char *upnp_gateway4;
+ 
++	char *doh_host;
++	uint16_t doh_port;
++
+ 	int resolv_opt;
+ 
+ 	int broadcast_address_opt;
+diff --git a/src/gnb_conf.c b/src/gnb_conf.c
+index 69c421d..6f65910 100644
+--- a/src/gnb_conf.c
++++ b/src/gnb_conf.c
+@@ -22,33 +22,7 @@
+ #include "gnb_conf_type.h"
+ #include "gnb.h"
+ 
+-
+-char * check_domain_name(char *host_string){
+-
+-    if ( NULL != strchr(host_string, ':') ) {
+-        return NULL;
+-    }
+-
+-    int i;
+-
+-    for( i=0; i<NAME_MAX; i++ ) {
+-
+-        if ( '\0' == host_string[i] ) {
+-            return NULL;
+-        }
+-
+-        if ( '.' == host_string[i] ) {
+-            continue;
+-        }
+-
+-        if ( host_string[i] >= 'a' && host_string[i] <= 'z' ) {
+-            return host_string;
+-        }
+-
+-    }
+-
+-    return NULL;
+-}
++#include "gnb_utils.h"
+ 
+ /*判断 配置行第二列是ip地址 还是node id*/
+ char * check_node_route(char *config_line_string){
+diff --git a/src/gnb_conf_file.c b/src/gnb_conf_file.c
+index bfa161b..772d7c9 100644
+--- a/src/gnb_conf_file.c
++++ b/src/gnb_conf_file.c
+@@ -35,7 +35,7 @@
+ #include "gnb_keys.h"
+ #include "gnb_udp.h"
+ 
+-#include "ed25519/ed25519.h"
++#include "gnb_utils.h"
+ #include "ed25519/sha512.h"
+ 
+ char * check_domain_name(char *host_string);
+diff --git a/src/gnb_http_client.c b/src/gnb_http_client.c
+new file mode 100644
+index 0000000..c78113c
+--- /dev/null
++++ b/src/gnb_http_client.c
+@@ -0,0 +1,255 @@
++/*
++   Copyright (C) gnbdev
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++
++#ifdef _WIN32
++#include <winsock2.h>
++#include <ws2tcpip.h>
++#else
++#include <unistd.h>
++#include <sys/socket.h>
++#define closesocket close
++#endif
++#include <sys/time.h>
++
++#include "gnb_http_client.h"
++#include "miniupnpc/connecthostport.h"
++#include "miniupnpc/receivedata.h"
++
++#if defined(WITH_MBEDTLS)
++#include "mbedtls/net_sockets.h"
++#include "mbedtls/ssl.h"
++#include "mbedtls/entropy.h"
++#include "mbedtls/ctr_drbg.h"
++#include "mbedtls/error.h"
++#include "mbedtls/x509_crt.h"
++#include "mbedtls/debug.h"
++#else
++#include <openssl/ssl.h>
++#include <openssl/err.h>
++#include <openssl/opensslv.h>
++#endif
++
++int gnb_http_get(const char *host, unsigned short port, int use_ssl, const char *path, char *response_buf, size_t buf_size) {
++    SOCKET sock;
++    char request[1024];
++    int request_len;
++    int recv_len;
++    char *body_start;
++    int body_len = -1;
++
++#if defined(WITH_MBEDTLS)
++    mbedtls_net_context server_fd;
++    mbedtls_entropy_context entropy;
++    mbedtls_ctr_drbg_context ctr_drbg;
++    mbedtls_ssl_context ssl;
++    mbedtls_x509_crt cacert;
++    mbedtls_ssl_config conf;
++    int ret;
++#else
++    SSL_CTX *ctx = NULL;
++    SSL *ssl = NULL;
++#endif
++
++    // 1. 连接到服务器
++    sock = connecthostport(host, port, 0);
++    if (ISINVALID(sock)) {
++        return -1;
++    }
++
++    // 为所有连接（包括即将进行的SSL）设置一个5秒的接收超时
++    struct timeval timeout;
++    timeout.tv_sec = 5;
++    timeout.tv_usec = 0;
++    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0) {
++        // 可以选择记录一个错误，但即使设置失败也继续尝试
++        // perror("setsockopt failed");
++    }
++
++
++    if (use_ssl) {
++#if defined(WITH_MBEDTLS)
++        mbedtls_net_init(&server_fd);
++        mbedtls_ssl_init(&ssl);
++        mbedtls_ssl_config_init(&conf);
++        mbedtls_ctr_drbg_init(&ctr_drbg);
++        mbedtls_x509_crt_init(&cacert);
++        mbedtls_entropy_init(&entropy);
++
++        if ((ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0)) != 0) {
++            goto mbedtls_cleanup;
++        }
++
++        if ((ret = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
++            goto mbedtls_cleanup;
++        }
++
++        // 加载 CA 证书，尝试系统默认路径
++        // 在 Linux 上通常是 /etc/ssl/certs
++        ret = mbedtls_x509_crt_parse_path(&cacert, "/etc/ssl/certs");
++        if (ret < 0) {
++            // 如果失败，可以尝试其他路径或记录错误
++            // 在这里我们简单地继续，但验证可能会因为没有CA而失败
++        }
++        mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
++
++        mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED); // 验证服务器证书
++        mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
++
++        if ((ret = mbedtls_ssl_setup(&ssl, &conf)) != 0) {
++            goto mbedtls_cleanup;
++        }
++
++        if ((ret = mbedtls_ssl_set_hostname(&ssl, host)) != 0) {
++            goto mbedtls_cleanup;
++        }
++
++        server_fd.fd = sock;
++        mbedtls_ssl_set_bio(&ssl, &server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
++
++        while ((ret = mbedtls_ssl_handshake(&ssl)) != 0) {
++            if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
++                goto mbedtls_cleanup;
++            }
++        }
++#else // Fallback to OpenSSL
++        #if OPENSSL_VERSION_NUMBER < 0x10100000L
++        SSL_library_init();
++        OpenSSL_add_all_algorithms();
++        SSL_load_error_strings();
++        ctx = SSL_CTX_new(SSLv23_client_method());
++        #else
++        OPENSSL_init_ssl(0, NULL);
++        ctx = SSL_CTX_new(TLS_client_method());
++        #endif
++        if (!ctx) {
++            closesocket(sock);
++            return -1;
++        }
++
++        // 设置默认的CA证书路径
++        if (!SSL_CTX_set_default_verify_paths(ctx)) {
++            // 处理错误
++        }
++        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
++
++        ssl = SSL_new(ctx);
++        SSL_set_fd(ssl, sock);
++
++        if (SSL_connect(ssl) <= 0) {
++            ERR_print_errors_fp(stderr);
++            SSL_free(ssl);
++            SSL_CTX_free(ctx);
++            closesocket(sock);
++            return -1;
++        }
++#endif
++    }
++
++    // 2. 构建HTTP(S) GET请求
++    request_len = snprintf(request, sizeof(request),
++                           "GET %s HTTP/1.1\r\n"
++                           "Host: %s\r\n"
++                           "Connection: close\r\n"
++                           "User-Agent: gnb\r\n"
++                           "\r\n",
++                           path, host);
++
++    // 3. 发送请求
++    if (use_ssl) {
++#if defined(WITH_MBEDTLS)
++        ret = mbedtls_ssl_write(&ssl, (const unsigned char *)request, request_len);
++        if (ret < 0) goto mbedtls_cleanup;
++#else
++        if (SSL_write(ssl, request, request_len) <= 0) {
++            SSL_free(ssl);
++            SSL_CTX_free(ctx);
++            closesocket(sock);
++            return -1;
++        }
++#endif
++    } else {
++        if (send(sock, request, request_len, 0) < 0) {
++            closesocket(sock);
++            return -1;
++        }
++    }
++
++    // 4. 接收响应
++    if (use_ssl) {
++#if defined(WITH_MBEDTLS)
++        recv_len = mbedtls_ssl_read(&ssl, (unsigned char *)response_buf, buf_size - 1);
++#else
++        recv_len = SSL_read(ssl, response_buf, buf_size - 1);
++#endif
++    } else {
++        // 使用 receivedata 函数，它带有超时机制
++        recv_len = receivedata(sock, response_buf, buf_size - 1, 5000, NULL);
++    }
++
++    // 5. 清理和关闭连接
++    if (use_ssl) {
++#if defined(WITH_MBEDTLS)
++mbedtls_cleanup:
++        mbedtls_ssl_close_notify(&ssl);
++        mbedtls_net_free(&server_fd);
++        mbedtls_ssl_free(&ssl);
++        mbedtls_ssl_config_free(&conf);
++        mbedtls_ctr_drbg_free(&ctr_drbg);
++        mbedtls_entropy_free(&entropy);
++        mbedtls_x509_crt_free(&cacert);
++#else
++        SSL_shutdown(ssl);
++        SSL_free(ssl);
++        SSL_CTX_free(ctx);
++#endif
++    }
++
++    closesocket(sock);
++
++    if (recv_len <= 0) {
++        return -1;
++    }
++    response_buf[recv_len] = '\0';
++
++    // 6. 解析HTTP响应，提取body
++    body_start = strstr(response_buf, "\r\n\r\n");
++    if (body_start) {
++        body_start += 4; // 跳过 "\r\n\r\n"
++        
++        // 检查 "200 OK"
++        if (strstr(response_buf, "HTTP/1.1 200 OK") == NULL && strstr(response_buf, "HTTP/1.0 200 OK") == NULL) {
++             return -1; // 非成功响应
++        }
++
++        body_len = recv_len - (body_start - response_buf);
++
++        // 将body内容移动到缓冲区开头
++        if (body_len > 0) {
++            memmove(response_buf, body_start, body_len);
++        }
++        response_buf[body_len] = '\0';
++
++    } else {
++        return -1; // 未找到HTTP body
++    }
++
++    return body_len;
++}
+\ No newline at end of file
+diff --git a/src/gnb_http_client.h b/src/gnb_http_client.h
+new file mode 100644
+index 0000000..f4739b0
+--- /dev/null
++++ b/src/gnb_http_client.h
+@@ -0,0 +1,35 @@
++/*
++   Copyright (C) gnbdev
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef GNB_HTTP_CLIENT_H
++#define GNB_HTTP_CLIENT_H
++
++#include <stddef.h>
++
++/*
++ * 通过HTTP GET请求获取内容
++ * host: 主机IP地址
++ * port: 端口
++ * use_ssl: 1表示使用HTTPS, 0表示使用HTTP
++ * path: 请求路径
++ * response_buf: 用于存储响应内容的缓冲区
++ * buf_size: 缓冲区大小
++ * 返回值: 成功时返回响应内容的长度，失败时返回-1
++ */
++int gnb_http_get(const char *host, unsigned short port, int use_ssl, const char *path, char *response_buf, size_t buf_size);
++
++#endif //GNB_HTTP_CLIENT_H
+\ No newline at end of file
+diff --git a/src/gnb_utils.c b/src/gnb_utils.c
+new file mode 100644
+index 0000000..9da72ff
+--- /dev/null
++++ b/src/gnb_utils.c
+@@ -0,0 +1,48 @@
++/*
++   Copyright (C) gnbdev
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; either version 3 of the License, or
++   (at your option) any later version.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include <stdio.h>
++#include <string.h>
++#include <ctype.h>
++#ifdef __UNIX_LIKE_OS__
++#include <arpa/inet.h>
++#endif
++
++#ifdef _WIN32
++#include <winsock2.h>
++#include <ws2tcpip.h>
++#endif
++#include "gnb_utils.h"
++
++char * check_domain_name(char *host_string) {
++    int i;
++    bool has_alpha = false;
++
++    if (!host_string || host_string[0] == '\0') {
++        return NULL;
++    }
++
++    // A simple heuristic: if it contains any letter, we'll assume it's a domain.
++    for (i = 0; host_string[i] != '\0'; i++) {
++        if (isalpha(host_string[i])) {
++            has_alpha = true;
++            break;
++        }
++    }
++
++    return has_alpha ? host_string : NULL;
++}
+diff --git a/src/gnb_utils.h b/src/gnb_utils.h
+new file mode 100644
+index 0000000..308b3cd
+--- /dev/null
++++ b/src/gnb_utils.h
+@@ -0,0 +1,27 @@
++/*
++  Copyright (C) gnbdev
++
++  This program is free software; you can redistribute it and/or modify
++  it under the terms of the GNU General Public License as published by
++  the Free Software Foundation; either version 3 of the License, or
++  (at your option) any later version.
++
++  This program is distributed in the hope that it will be useful,
++  but WITHOUT ANY WARRANTY; without even the implied warranty of
++  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++  GNU General Public License for more details.
++
++  You should have received a copy of the GNU General Public License
++  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef GNB_UTILS_H
++#define GNB_UTILS_H
++
++#include <stdint.h>
++#include <limits.h>
++#include <stdbool.h>
++
++char * check_domain_name(char *host_string);
++
++#endif
+diff --git a/src/jsmn/jsmn.c b/src/jsmn/jsmn.c
+new file mode 100644
+index 0000000..06fe4a3
+--- /dev/null
++++ b/src/jsmn/jsmn.c
+@@ -0,0 +1,386 @@
++/*
++ * MIT License
++ *
++ * Copyright (c) 2010 Serge Zaitsev
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ */
++
++#include "jsmn.h"
++
++/**
++ * Allocates a new token from the token pool.
++ */
++static jsmntok_t *jsmn_alloc_token(jsmn_parser *parser, jsmntok_t *tokens,
++                                   const size_t num_tokens) {
++  jsmntok_t *tok;
++  if (parser->toknext >= num_tokens) {
++    return NULL;
++  }
++  tok = &tokens[parser->toknext++];
++  tok->start = tok->end = -1;
++  tok->size = 0;
++#ifdef JSMN_PARENT_LINKS
++  tok->parent = -1;
++#endif
++  return tok;
++}
++
++/**
++ * Fills token type and boundaries.
++ */
++static void jsmn_fill_token(jsmntok_t *token, const jsmntype_t type,
++                            const int start, const int end) {
++  token->type = type;
++  token->start = start;
++  token->end = end;
++  token->size = 0;
++}
++
++/**
++ * Fills next available token with JSON primitive.
++ */
++static int jsmn_parse_primitive(jsmn_parser *parser, const char *js,
++                                const size_t len, jsmntok_t *tokens,
++                                const size_t num_tokens) {
++  jsmntok_t *token;
++  int start;
++
++  start = parser->pos;
++
++  for (; parser->pos < len && js[parser->pos] != '\0'; parser->pos++) {
++    switch (js[parser->pos]) {
++#ifndef JSMN_STRICT
++    /* In strict mode primitive must be followed by "," or "}" or "]" */
++    case ':':
++#endif
++    case '\t':
++    case '\r':
++    case '\n':
++    case ' ':
++    case ',':
++    case ']':
++    case '}':
++      goto found;
++    default:
++                   /* to quiet a warning from gcc */
++      break;
++    }
++    if (js[parser->pos] < 32 || js[parser->pos] >= 127) {
++      parser->pos = start;
++      return JSMN_ERROR_INVAL;
++    }
++  }
++#ifdef JSMN_STRICT
++  /* In strict mode primitive must be followed by a comma/object/array */
++  parser->pos = start;
++  return JSMN_ERROR_PART;
++#endif
++
++found:
++  if (tokens == NULL) {
++    parser->pos--;
++    return 0;
++  }
++  token = jsmn_alloc_token(parser, tokens, num_tokens);
++  if (token == NULL) {
++    parser->pos = start;
++    return JSMN_ERROR_NOMEM;
++  }
++  jsmn_fill_token(token, JSMN_PRIMITIVE, start, parser->pos);
++#ifdef JSMN_PARENT_LINKS
++  token->parent = parser->toksuper;
++#endif
++  parser->pos--;
++  return 0;
++}
++
++/**
++ * Fills next token with JSON string.
++ */
++static int jsmn_parse_string(jsmn_parser *parser, const char *js,
++                             const size_t len, jsmntok_t *tokens,
++                             const size_t num_tokens) {
++  jsmntok_t *token;
++
++  int start = parser->pos;
++
++  parser->pos++;
++
++  /* Skip starting quote */
++  for (; parser->pos < len && js[parser->pos] != '\0'; parser->pos++) {
++    char c = js[parser->pos];
++
++    /* Quote: end of string */
++    if (c == '\"') {
++      if (tokens == NULL) {
++        return 0;
++      }
++      token = jsmn_alloc_token(parser, tokens, num_tokens);
++      if (token == NULL) {
++        parser->pos = start;
++        return JSMN_ERROR_NOMEM;
++      }
++      jsmn_fill_token(token, JSMN_STRING, start + 1, parser->pos);
++#ifdef JSMN_PARENT_LINKS
++      token->parent = parser->toksuper;
++#endif
++      return 0;
++    }
++
++    /* Backslash: Quoted symbol expected */
++    if (c == '\\' && parser->pos + 1 < len) {
++      int i;
++      parser->pos++;
++      switch (js[parser->pos]) {
++      /* Allowed escaped symbols */
++      case '\"':
++      case '/':
++      case '\\':
++      case 'b':
++      case 'f':
++      case 'r':
++      case 'n':
++      case 't':
++        break;
++      /* Allows escaped symbol \uXXXX */
++      case 'u':
++        parser->pos++;
++        for (i = 0; i < 4 && parser->pos < len && js[parser->pos] != '\0';
++             i++) {
++          /* If it isn't a hex character we have an error */
++          if (!((js[parser->pos] >= 48 && js[parser->pos] <= 57) ||   /* 0-9 */
++                (js[parser->pos] >= 65 && js[parser->pos] <= 70) ||   /* A-F */
++                (js[parser->pos] >= 97 && js[parser->pos] <= 102))) { /* a-f */
++            parser->pos = start;
++            return JSMN_ERROR_INVAL;
++          }
++          parser->pos++;
++        }
++        parser->pos--;
++        break;
++      /* Unexpected symbol */
++      default:
++        parser->pos = start;
++        return JSMN_ERROR_INVAL;
++      }
++    }
++  }
++  parser->pos = start;
++  return JSMN_ERROR_PART;
++}
++
++/**
++ * Parse JSON string and fill tokens.
++ */
++JSMN_API int jsmn_parse(jsmn_parser *parser, const char *js, const size_t len,
++                        jsmntok_t *tokens, const unsigned int num_tokens) {
++  int r;
++  int i;
++  jsmntok_t *token;
++  int count = parser->toknext;
++
++  for (; parser->pos < len && js[parser->pos] != '\0'; parser->pos++) {
++    char c;
++    jsmntype_t type;
++
++    c = js[parser->pos];
++    switch (c) {
++    case '{':
++    case '[':
++      count++;
++      if (tokens == NULL) {
++        break;
++      }
++      token = jsmn_alloc_token(parser, tokens, num_tokens);
++      if (token == NULL) {
++        return JSMN_ERROR_NOMEM;
++      }
++      if (parser->toksuper != -1) {
++        jsmntok_t *t = &tokens[parser->toksuper];
++#ifdef JSMN_STRICT
++        /* In strict mode an object or array can't become a key */
++        if (t->type == JSMN_OBJECT) {
++          return JSMN_ERROR_INVAL;
++        }
++#endif
++        t->size++;
++#ifdef JSMN_PARENT_LINKS
++        token->parent = parser->toksuper;
++#endif
++      }
++      token->type = (c == '{' ? JSMN_OBJECT : JSMN_ARRAY);
++      token->start = parser->pos;
++      parser->toksuper = parser->toknext - 1;
++      break;
++    case '}':
++    case ']':
++      if (tokens == NULL) {
++        break;
++      }
++      type = (c == '}' ? JSMN_OBJECT : JSMN_ARRAY);
++#ifdef JSMN_PARENT_LINKS
++      if (parser->toknext < 1) {
++        return JSMN_ERROR_INVAL;
++      }
++      token = &tokens[parser->toknext - 1];
++      for (;;) {
++        if (token->start != -1 && token->end == -1) {
++          if (token->type != type) {
++            return JSMN_ERROR_INVAL;
++          }
++          token->end = parser->pos + 1;
++          parser->toksuper = token->parent;
++          break;
++        }
++        if (token->parent == -1) {
++          if (token->type != type || parser->toksuper == -1) {
++            return JSMN_ERROR_INVAL;
++          }
++          break;
++        }
++        token = &tokens[token->parent];
++      }
++#else
++      for (i = parser->toknext - 1; i >= 0; i--) {
++        token = &tokens[i];
++        if (token->start != -1 && token->end == -1) {
++          if (token->type != type) {
++            return JSMN_ERROR_INVAL;
++          }
++          parser->toksuper = -1;
++          token->end = parser->pos + 1;
++          break;
++        }
++      }
++      /* Error if unmatched closing bracket */
++      if (i == -1) {
++        return JSMN_ERROR_INVAL;
++      }
++      for (; i >= 0; i--) {
++        token = &tokens[i];
++        if (token->start != -1 && token->end == -1) {
++          parser->toksuper = i;
++          break;
++        }
++      }
++#endif
++      break;
++    case '\"':
++      r = jsmn_parse_string(parser, js, len, tokens, num_tokens);
++      if (r < 0) {
++        return r;
++      }
++      count++;
++      if (parser->toksuper != -1 && tokens != NULL) {
++        tokens[parser->toksuper].size++;
++      }
++      break;
++    case '\t':
++    case '\r':
++    case '\n':
++    case ' ':
++      break;
++    case ':':
++      parser->toksuper = parser->toknext - 1;
++      break;
++    case ',':
++      if (tokens != NULL && parser->toksuper != -1 &&
++          tokens[parser->toksuper].type != JSMN_ARRAY &&
++          tokens[parser->toksuper].type != JSMN_OBJECT) {
++#ifdef JSMN_PARENT_LINKS
++        parser->toksuper = tokens[parser->toksuper].parent;
++#else
++        for (i = parser->toknext - 1; i >= 0; i--) {
++          if (tokens[i].type == JSMN_ARRAY || tokens[i].type == JSMN_OBJECT) {
++            if (tokens[i].start != -1 && tokens[i].end == -1) {
++              parser->toksuper = i;
++              break;
++            }
++          }
++        }
++#endif
++      }
++      break;
++#ifdef JSMN_STRICT
++    /* In strict mode primitives are: numbers and booleans */
++    case '-':
++    case '0':
++    case '1':
++    case '2':
++    case '3':
++    case '4':
++    case '5':
++    case '6':
++    case '7':
++    case '8':
++    case '9':
++    case 't':
++    case 'f':
++    case 'n':
++      /* And they must not be keys of the object */
++      if (tokens != NULL && parser->toksuper != -1) {
++        const jsmntok_t *t = &tokens[parser->toksuper];
++        if (t->type == JSMN_OBJECT ||
++            (t->type == JSMN_STRING && t->size != 0)) {
++          return JSMN_ERROR_INVAL;
++        }
++      }
++#else
++    /* In non-strict mode every unquoted value is a primitive */
++    default:
++#endif
++      r = jsmn_parse_primitive(parser, js, len, tokens, num_tokens);
++      if (r < 0) {
++        return r;
++      }
++      count++;
++      if (parser->toksuper != -1 && tokens != NULL) {
++        tokens[parser->toksuper].size++;
++      }
++      break;
++
++#ifdef JSMN_STRICT
++    /* Unexpected char in strict mode */
++    default:
++      return JSMN_ERROR_INVAL;
++#endif
++    }
++  }
++
++  if (tokens != NULL) {
++    for (i = parser->toknext - 1; i >= 0; i--) {
++      /* Unmatched opened object or array */
++      if (tokens[i].start != -1 && tokens[i].end == -1) {
++        return JSMN_ERROR_PART;
++      }
++    }
++  }
++
++  return count;
++}
++
++/**
++ * Creates a new parser based on an already allocated parser instance.
++ */
++JSMN_API void jsmn_init(jsmn_parser *parser) {
++  parser->pos = 0;
++  parser->toknext = 0;
++  parser->toksuper = -1;
++}
+\ No newline at end of file
+diff --git a/src/jsmn/jsmn.h b/src/jsmn/jsmn.h
+new file mode 100644
+index 0000000..5a0dc15
+--- /dev/null
++++ b/src/jsmn/jsmn.h
+@@ -0,0 +1,106 @@
++/*
++ * MIT License
++ *
++ * Copyright (c) 2010 Serge Zaitsev
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ */
++#ifndef JSMN_H
++#define JSMN_H
++
++#include <stddef.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#ifdef JSMN_STATIC
++#define JSMN_API static
++#else
++#define JSMN_API extern
++#endif
++
++/**
++ * JSON type identifier. Basic types are:
++ * 	o Object
++ * 	o Array
++ * 	o String
++ * 	o Other primitive: number, boolean (true/false) or null
++ */
++typedef enum {
++  JSMN_UNDEFINED = 0,
++  JSMN_OBJECT = 1 << 0,
++  JSMN_ARRAY = 1 << 1,
++  JSMN_STRING = 1 << 2,
++  JSMN_PRIMITIVE = 1 << 3
++} jsmntype_t;
++
++enum jsmnerr {
++  /* Not enough tokens were provided */
++  JSMN_ERROR_NOMEM = -1,
++  /* Invalid character inside JSON string */
++  JSMN_ERROR_INVAL = -2,
++  /* The string is not a full JSON packet, more bytes expected */
++  JSMN_ERROR_PART = -3
++};
++
++/**
++ * JSON token description.
++ * type		type (object, array, string etc.)
++ * start	start position in JSON data string
++ * end		end position in JSON data string
++ */
++typedef struct jsmntok {
++  jsmntype_t type;
++  int start;
++  int end;
++  int size;
++#ifdef JSMN_PARENT_LINKS
++  int parent;
++#endif
++} jsmntok_t;
++
++/**
++ * JSON parser. Contains an array of token blocks available. Also stores
++ * the string being parsed.
++ */
++typedef struct jsmn_parser {
++  unsigned int pos;     /* offset in the JSON string */
++  unsigned int toknext; /* next token to allocate */
++  int toksuper;         /* superior token node, e.g parent object or array */
++} jsmn_parser;
++
++/**
++ * Create JSON parser over an array of tokens
++ */
++JSMN_API void jsmn_init(jsmn_parser *parser);
++
++/**
++ * Run JSON parser. It parses a JSON data string into and array of tokens, each
++ * describing
++ * a single JSON object.
++ */
++JSMN_API int jsmn_parse(jsmn_parser *parser, const char *js, const size_t len,
++                        jsmntok_t *tokens, const unsigned int num_tokens);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* JSMN_H */
+\ No newline at end of file
+-- 
+2.37.1 (Apple Git-137.1)
+

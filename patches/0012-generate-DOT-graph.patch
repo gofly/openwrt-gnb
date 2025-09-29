@@ -1,0 +1,140 @@
+From 9286af30f98d6d91df3b5b68e04937c5266d11de Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Fri, 31 Oct 2025 20:33:32 +0800
+Subject: [PATCH 12/14] generate DOT graph
+
+---
+ src/gnb_exporter_worker.c | 110 +++++++++++++++++++++++++++++++++-----
+ 1 file changed, 97 insertions(+), 13 deletions(-)
+
+diff --git a/src/gnb_exporter_worker.c b/src/gnb_exporter_worker.c
+index 9a62d26..344eb7f 100644
+--- a/src/gnb_exporter_worker.c
++++ b/src/gnb_exporter_worker.c
+@@ -122,6 +122,98 @@ static void generate_metrics_string(char *buffer, size_t buffer_size, gnb_ctl_bl
+     }
+ }
+ 
++// 生成 DOT 格式的节点连接图字符串
++static void generate_dot_string(char *buffer, size_t buffer_size, gnb_ctl_block_t *ctl_block) {
++    size_t offset = 0;
++    int ret;
++    gnb_node_t *nodes = ctl_block->node_zone->node;
++    size_t node_num = ctl_block->node_zone->node_num;
++    gnb_node_t *local_node = NULL;
++
++    // 找到本地节点
++    for (size_t i = 0; i < node_num; i++) {
++        if (nodes[i].uuid64 == ctl_block->core_zone->local_uuid) {
++            local_node = &nodes[i];
++            break;
++        }
++    }
++    if (!local_node) return;
++
++    // DOT 图开始
++    ret = snprintf(buffer + offset, buffer_size - offset, "digraph G {\n  rankdir=LR;\n  node [shape=ellipse];\n");
++    if (ret < 0 || ret >= buffer_size - offset) return;
++    offset += ret;
++
++    // 声明所有节点
++    for (size_t i = 0; i < node_num; i++) {
++        ret = snprintf(buffer + offset, buffer_size - offset, "  \"%"PRIu64"\";\n", nodes[i].uuid64);
++        if (ret < 0 || ret >= buffer_size - offset) return;
++        offset += ret;
++    }
++
++    // 从本地节点的视角绘制连接
++    for (size_t i = 0; i < node_num; i++) {
++        gnb_node_t *dst_node = &nodes[i];
++        if (dst_node->uuid64 == local_node->uuid64) continue;
++
++        ret = 0;
++
++        int is_ipv4_direct = (dst_node->udp_addr_status & GNB_NODE_STATUS_IPV4_PONG);
++        int is_ipv6_direct = (dst_node->udp_addr_status & GNB_NODE_STATUS_IPV6_PONG);
++
++        if (is_ipv4_direct || is_ipv6_direct) {
++            // 绘制直接连接（实线）
++            char label[16];
++            if (is_ipv4_direct && is_ipv6_direct) {
++                strcpy(label, "IPv4&IPv6");
++            } else if (is_ipv4_direct) {
++                strcpy(label, "IPv4");
++            } else {
++                strcpy(label, "IPv6");
++            }
++            ret = snprintf(buffer + offset, buffer_size - offset,
++                "  \"%"PRIu64"\" -> \"%"PRIu64"\" [label=\"%s\"];\n",
++                local_node->uuid64, dst_node->uuid64, label);
++        } else {
++            // 检查是否存在可用的 unified forwarding 节点
++            int has_uf_node = 0;
++            for (int j = 0; j < GNB_UNIFIED_FORWARDING_NODE_ARRAY_SIZE; j++) {
++                if (dst_node->unified_forwarding_node_array[j].uuid64 != 0 &&
++                    (ctl_block->status_zone->keep_alive_ts_sec - dst_node->unified_forwarding_node_array[j].last_ts_sec) < GNB_UNIFIED_FORWARDING_NODE_ARRAY_EXPIRED_SEC) {
++                    has_uf_node = 1;
++                    break;
++                }
++            }
++            if (has_uf_node) {
++                // 绘制 unified forwarding 连接（虚线）
++                ret = snprintf(buffer + offset, buffer_size - offset,
++                    "  \"%"PRIu64"\" -> \"%"PRIu64"\" [style=dashed];\n",
++                    local_node->uuid64, dst_node->uuid64);
++            }
++        }
++        if (ret < 0 || ret >= buffer_size - offset) return;
++        offset += ret;
++    }
++
++    // DOT 图结束
++    snprintf(buffer + offset, buffer_size - offset, "}\n");
++}
++
++static void send_http_response(int socket, const char *content_type, const char *body) {
++    char http_response[BUFFER_SIZE * 2] = {0};
++    snprintf(http_response, sizeof(http_response),
++        "HTTP/1.1 200 OK\r\n"
++        "Content-Type: %s\r\n"
++        "Content-Length: %zu\r\n"
++        "\r\n"
++        "%s",
++        content_type,
++        strlen(body),
++        body
++    );
++    write(socket, http_response, strlen(http_response));
++}
++
+ static void* thread_worker_func(void *data) {
+     gnb_worker_t *gnb_worker = (gnb_worker_t *)data;
+     exporter_worker_ctx_t *worker_ctx = (exporter_worker_ctx_t *)gnb_worker->ctx;
+@@ -148,19 +240,11 @@ static void* thread_worker_func(void *data) {
+         if (strncmp(buffer, "GET /metrics", 12) == 0) {
+             char metrics_string[BUFFER_SIZE] = {0};
+             generate_metrics_string(metrics_string, sizeof(metrics_string), gnb_core->ctl_block);
+-
+-            char http_response[BUFFER_SIZE * 2] = {0};
+-            snprintf(http_response, sizeof(http_response),
+-                "HTTP/1.1 200 OK\r\n"
+-                "Content-Type: text/plain; version=0.0.4\r\n"
+-                "Content-Length: %zu\r\n"
+-                "\r\n"
+-                "%s",
+-                strlen(metrics_string),
+-                metrics_string
+-            );
+-
+-            write(new_socket, http_response, strlen(http_response));
++            send_http_response(new_socket, "text/plain; version=0.0.4", metrics_string);
++        } else if (strncmp(buffer, "GET /graph", 10) == 0) {
++            char dot_string[BUFFER_SIZE * 2] = {0}; // 为DOT图提供更大缓冲区
++            generate_dot_string(dot_string, sizeof(dot_string), gnb_core->ctl_block);
++            send_http_response(new_socket, "text/vnd.graphviz", dot_string);
+         }
+ 
+         close(new_socket);
+-- 
+2.37.1 (Apple Git-137.1)
+

@@ -1,0 +1,192 @@
+From 35261c916fd9623dc03caa06725fac7debb6a410 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 20 Sep 2025 19:18:41 +0800
+Subject: [PATCH 06/14] add fwmark for linux
+
+---
+ src/es/gnb_environment_service.c |  4 ++--
+ src/gnb_argv.c                   | 12 ++++++++++--
+ src/gnb_conf_file.c              | 11 +++++++++++
+ src/gnb_conf_type.h              |  1 +
+ src/gnb_primary_worker.c         |  4 ++--
+ src/gnb_udp.c                    | 11 +++++++++--
+ src/gnb_udp.h                    |  4 ++--
+ 7 files changed, 37 insertions(+), 10 deletions(-)
+
+diff --git a/src/es/gnb_environment_service.c b/src/es/gnb_environment_service.c
+index 7d420ea..140692a 100644
+--- a/src/es/gnb_environment_service.c
++++ b/src/es/gnb_environment_service.c
+@@ -167,10 +167,10 @@ void gnb_es_ctx_init(gnb_es_ctx *es_ctx){
+     gnb_worker_t *gnb_worker_mod;
+ 
+     es_ctx->udp_socket4 = socket(AF_INET, SOCK_DGRAM, 0);
+-    gnb_bind_udp_socket_ipv4(es_ctx->udp_socket4, "0.0.0.0", 0);
++    gnb_bind_udp_socket_ipv4(es_ctx->udp_socket4, "0.0.0.0", 0, 0);
+ 
+     es_ctx->udp_socket6 = socket(AF_INET6, SOCK_DGRAM, 0);
+-    gnb_bind_udp_socket_ipv6(es_ctx->udp_socket6, "::",      0);
++    gnb_bind_udp_socket_ipv6(es_ctx->udp_socket6, "::",      0, 0);
+ 
+     if ( es_ctx->discover_in_lan_opt && es_ctx->service_opt ) {
+ 
+diff --git a/src/gnb_argv.c b/src/gnb_argv.c
+index 0c4c1dc..b36e917 100644
+--- a/src/gnb_argv.c
++++ b/src/gnb_argv.c
+@@ -115,6 +115,7 @@ void gnb_setup_es_argv(char *es_argv_string);
+ #define SET_MEMORY_SCALE               (GNB_OPT_INIT + 51)
+ 
+ #define SET_SAFE_INDEX                 (GNB_OPT_INIT + 52)
++#define SET_FWMARK                     (GNB_OPT_INIT + 53)
+ 
+ gnb_arg_list_t *gnb_es_arg_list;
+ 
+@@ -215,6 +216,7 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+     conf->address_detect_interval_usec = GNB_ADDRESS_DETECT_INTERVAL_USEC;
+     conf->full_detect_interval_sec     = GNB_FULL_DETECT_INTERVAL_SEC;
+     conf->safe_index = 0;
++    conf->fwmark = 0;
+     conf->daemon = 0;
+     conf->systemd_daemon = 0;
+ 
+@@ -365,8 +367,10 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+       { "node-log-level",            required_argument,  0,   SET_NODE_LOG_LEVEL },
+       { "index-log-level",           required_argument,  0,   SET_INDEX_LOG_LEVEL },
+       { "index-service-log-level",   required_argument,  0,   SET_INDEX_SERVICE_LOG_LEVEL },
+-      { "node-detect-log-level",     required_argument,  0,   SET_DETECT_LOG_LEVEL },      
+-
++      { "node-detect-log-level",     required_argument,  0,   SET_DETECT_LOG_LEVEL },
++      #if defined(__linux__)
++      { "fwmark",                    required_argument,  0,   SET_FWMARK },
++      #endif
+       { "help",     no_argument, 0, 'h' },
+ 
+       { 0, 0, 0, 0 }
+@@ -491,6 +495,10 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+         case SET_SAFE_INDEX:
+             conf->safe_index = 1;
+ 
++        case SET_FWMARK:
++            conf->fwmark = (uint32_t)strtoul(optarg, NULL, 10);
++            break;
++
+         case SET_SYSTEMD_DAEMON:
+             conf->systemd_daemon = 1;
+             break;
+diff --git a/src/gnb_conf_file.c b/src/gnb_conf_file.c
+index 1cfb816..bfa161b 100644
+--- a/src/gnb_conf_file.c
++++ b/src/gnb_conf_file.c
+@@ -1191,6 +1191,17 @@ void local_node_file_config(gnb_conf_t *conf){
+         }
+ 
+ 
++        if ( !strncmp(line_buffer, "fwmark", sizeof("fwmark")-1) ) {
++
++            num = sscanf(line_buffer, "%32[^ ] %d", field, &conf->fwmark);
++
++            if ( 2 != num ) {
++                printf("config %s error in [%s]\n", "fwmark", node_conf_file);
++                exit(1);
++            }
++
++        }
++
+     }while(1);
+ 
+     fclose(file);    
+diff --git a/src/gnb_conf_type.h b/src/gnb_conf_type.h
+index c913713..1f403ff 100644
+--- a/src/gnb_conf_type.h
++++ b/src/gnb_conf_type.h
+@@ -188,6 +188,7 @@ typedef struct _gnb_conf_t {
+ 
+ 	uint8_t addr_secure;
+ 
++	uint32_t fwmark;
+ 	uint8_t daemon;
+ 	uint8_t systemd_daemon;
+ 
+diff --git a/src/gnb_primary_worker.c b/src/gnb_primary_worker.c
+index fac6197..c8bc1c4 100644
+--- a/src/gnb_primary_worker.c
++++ b/src/gnb_primary_worker.c
+@@ -1103,7 +1103,7 @@ static int start(gnb_worker_t *gnb_worker){
+ 
+             gnb_core->udp_ipv6_sockets[i] = socket(AF_INET6, SOCK_DGRAM, 0);
+ 
+-            gnb_bind_udp_socket_ipv6(gnb_core->udp_ipv6_sockets[i], gnb_core->conf->listen_address6_string,  gnb_core->conf->udp6_ports[i]);
++            gnb_bind_udp_socket_ipv6(gnb_core->udp_ipv6_sockets[i], gnb_core->conf->listen_address6_string,  gnb_core->conf->udp6_ports[i], gnb_core->conf->fwmark);
+ 
+             sockaddr_len = sizeof(struct sockaddr_in6);
+             getsockname( gnb_core->udp_ipv6_sockets[i], (struct sockaddr *)&sockaddr6, &sockaddr_len );
+@@ -1121,7 +1121,7 @@ static int start(gnb_worker_t *gnb_worker){
+ 
+             gnb_core->udp_ipv4_sockets[i] = socket(AF_INET, SOCK_DGRAM, 0);
+ 
+-            gnb_bind_udp_socket_ipv4(gnb_core->udp_ipv4_sockets[i], gnb_core->conf->listen_address4_string, gnb_core->conf->udp4_ports[i]);
++            gnb_bind_udp_socket_ipv4(gnb_core->udp_ipv4_sockets[i], gnb_core->conf->listen_address4_string, gnb_core->conf->udp4_ports[i], gnb_core->conf->fwmark);
+ 
+             if ( 0==gnb_core->conf->udp4_ports[i] ) {
+                 sockaddr_len = sizeof(struct sockaddr_in);
+diff --git a/src/gnb_udp.c b/src/gnb_udp.c
+index ef8d83c..15d9fb9 100644
+--- a/src/gnb_udp.c
++++ b/src/gnb_udp.c
+@@ -41,7 +41,7 @@
+ 
+ #include "gnb_udp.h"
+ 
+-int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port) {
++int gnb_bind_udp_socket_ipv4(int socketfd, const char *host, int port, int fwmark) {
+     struct sockaddr_in svr_addr;
+     memset(&svr_addr, 0, sizeof(struct sockaddr_in));
+     svr_addr.sin_family = AF_INET;
+@@ -54,6 +54,9 @@ int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port) {
+ 
+     int on = 1;
+     setsockopt( socketfd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on) );
++    #ifdef SO_MARK
++    setsockopt( socketfd, SOL_SOCKET, SO_MARK, &fwmark, sizeof(fwmark) );
++    #endif
+ 
+     if ( bind(socketfd, (struct sockaddr *)&svr_addr, sizeof(struct sockaddr_in)) < 0 ) {
+         perror("bind");
+@@ -63,7 +66,7 @@ int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port) {
+ }
+ 
+ 
+-int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port) {
++int gnb_bind_udp_socket_ipv6(int socketfd, const char *host, int port, int fwmark) {
+     struct sockaddr_in6 svr_addr;
+     memset(&svr_addr,0, sizeof(struct sockaddr_in6));
+ 
+@@ -81,6 +84,10 @@ int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port) {
+     setsockopt(socketfd, SOL_SOCKET, SO_REUSEADDR,(const char *)&on, sizeof(on) );
+     on = 1;
+     setsockopt(socketfd, IPPROTO_IPV6, IPV6_V6ONLY,(char *)&on, sizeof(on) );
++    #ifdef SO_MARK
++    setsockopt(socketfd, SOL_SOCKET, SO_MARK, &fwmark, sizeof(fwmark));
++    #endif
++
+     if ( bind(socketfd, (struct sockaddr *)&svr_addr, sizeof(struct sockaddr_in6))<0 ) {
+         perror("bind");
+         return -1;
+diff --git a/src/gnb_udp.h b/src/gnb_udp.h
+index 5717790..3eca7ea 100644
+--- a/src/gnb_udp.h
++++ b/src/gnb_udp.h
+@@ -18,7 +18,7 @@
+ #ifndef GNB_UDP_H
+ #define GNB_UDP_H
+ 
+-int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port);
+-int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port);
++int gnb_bind_udp_socket_ipv4(int socketfd,const char *host, int port, int fwmark);
++int gnb_bind_udp_socket_ipv6(int socketfd,const char *host, int port, int fwmark);
+ 
+ #endif
+-- 
+2.37.1 (Apple Git-137.1)
+

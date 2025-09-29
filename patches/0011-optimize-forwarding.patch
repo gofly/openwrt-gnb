@@ -1,0 +1,149 @@
+From 1493aba508cba6cab65812afdd600a3eb0c907eb Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Thu, 23 Oct 2025 00:00:20 +0800
+Subject: [PATCH 11/14] optimize forwarding
+
+---
+ src/gnb_node.c               | 72 +++++++++++++++++-------------------
+ src/gnb_node_worker.c        |  7 ++--
+ src/gnb_unified_forwarding.c |  2 +-
+ src/gnb_unified_forwarding.h |  2 +
+ 4 files changed, 40 insertions(+), 43 deletions(-)
+
+diff --git a/src/gnb_node.c b/src/gnb_node.c
+index 3d0d158..03224af 100644
+--- a/src/gnb_node.c
++++ b/src/gnb_node.c
+@@ -718,52 +718,46 @@ finish:
+ 
+ 
+ int gnb_p2p_forward_payload_to_node(gnb_core_t *gnb_core, gnb_node_t *node, gnb_payload16_t *payload){
+-
+-    int ret;
+-
+-    // gnb_core->conf->udp_socket_type 默认是 GNB_ADDR_TYPE_IPV4 | GNB_ADDR_TYPE_IPV6;
+-    if ( GNB_ADDR_TYPE_IPV4 == gnb_core->conf->udp_socket_type ) {
+-        goto send_by_ipv4;
+-    } else if ( GNB_ADDR_TYPE_IPV6 == gnb_core->conf->udp_socket_type ) {
+-        goto send_by_ipv6;
+-    }
+-
+-    if ( (node->udp_addr_status & GNB_NODE_STATUS_IPV6_PONG) && (node->udp_addr_status & GNB_NODE_STATUS_IPV4_PONG) ) {
+-
+-        if ( 0 == node->addr4_ping_latency_usec ) {
+-            goto send_by_ipv6;
+-        }
+-
+-        if ( 0 == node->addr6_ping_latency_usec ) {
+-            goto send_by_ipv4;
+-        }
+-
+-        if ( node->addr4_ping_latency_usec >= node->addr6_ping_latency_usec ) {
+-            goto send_by_ipv6;
+-        } else {
+-            goto send_by_ipv4;
++    int ret = -1;
++    int use_ipv6 = 0;
++    int use_ipv4 = 0;
++
++    int can_ipv6 = (node->udp_addr_status & GNB_NODE_STATUS_IPV6_PONG) &&
++                   (gnb_core->conf->udp_socket_type & GNB_ADDR_TYPE_IPV6) &&
++                   (memcmp(&node->udp_sockaddr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) != 0);
++
++    int can_ipv4 = (node->udp_addr_status & GNB_NODE_STATUS_IPV4_PONG) &&
++                   (gnb_core->conf->udp_socket_type & GNB_ADDR_TYPE_IPV4) &&
++                   (node->udp_sockaddr4.sin_addr.s_addr != INADDR_ANY);
++
++    if (can_ipv6 && can_ipv4) {
++        // 两条路径都可用，选择延迟更低的
++        // 如果 addr6_ping_latency_usec <= 0，说明延迟未知或无效，优先选IPv4
++        // 如果 addr4_ping_latency_usec <= 0，说明延迟未知或无效，优先选IPv6
++        if (node->addr6_ping_latency_usec > 0 && node->addr4_ping_latency_usec > 0) {
++            if (node->addr6_ping_latency_usec <= node->addr4_ping_latency_usec) {
++                use_ipv6 = 1;
++            } else {
++                use_ipv4 = 1;
++            }
++        } else if (node->addr6_ping_latency_usec > 0) {
++            use_ipv6 = 1;
++        } else { // 默认或仅有IPv4延迟有效时
++            use_ipv4 = 1;
+         }
+-
++    } else if (can_ipv6) {
++        use_ipv6 = 1;
++    } else if (can_ipv4) {
++        use_ipv4 = 1;
+     }
+ 
+-send_by_ipv6:
+-
+-    if ( (node->udp_addr_status & GNB_NODE_STATUS_IPV6_PONG) && (gnb_core->conf->udp_socket_type & GNB_ADDR_TYPE_IPV6) && memcmp(&node->udp_sockaddr6.sin6_addr,&in6addr_any,sizeof(struct in6_addr)) ) {
+-
++    if (use_ipv6) {
+         sendto(gnb_core->udp_ipv6_sockets[node->socket6_idx],(void *)payload, GNB_PAYLOAD16_FRAME_SIZE(payload), 0, (struct sockaddr *)&node->udp_sockaddr6, sizeof(struct sockaddr_in6) );
+-
+-        goto finish;
+-
++    } else if (use_ipv4) {
++        sendto(gnb_core->udp_ipv4_sockets[node->socket4_idx], (void *)payload, GNB_PAYLOAD16_FRAME_SIZE(payload), 0, (struct sockaddr *)&node->udp_sockaddr4, sizeof(struct sockaddr_in));
+     }
+ 
+-send_by_ipv4:
+-
+-    ret = sendto(gnb_core->udp_ipv4_sockets[ node->socket4_idx ], (void *)payload, GNB_PAYLOAD16_FRAME_SIZE(payload), 0, (struct sockaddr *)&node->udp_sockaddr4, sizeof(struct sockaddr_in));
+-
+-finish:
+-
+     return 0;
+-
+ }
+ 
+ 
+diff --git a/src/gnb_node_worker.c b/src/gnb_node_worker.c
+index b7dd89b..2eb646c 100644
+--- a/src/gnb_node_worker.c
++++ b/src/gnb_node_worker.c
+@@ -392,9 +392,10 @@ static void handle_ping_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+             uint16_t tun_port_net = 0;
+             memcpy(&tun_port_net, node_ping_frame->data.attachment, sizeof(uint16_t)); // 假定 attachment 为网络字节序
+ 
+-            /* 不要修改 src_node->udp_sockaddr4.sin_addr（那是接收到的 LAN IP），
+-            仅更新端口（如果与已记录的端口不同） */
+-            if ( src_node->udp_sockaddr4.sin_port != tun_port_net ) {
++            /* 对于 LAN_PING，IP 应该是收到包的源 IP，端口是 attachment 里的 tun_port */
++            if (src_node->udp_sockaddr4.sin_addr.s_addr != node_addr->addr.in.sin_addr.s_addr ||
++                src_node->udp_sockaddr4.sin_port != tun_port_net) {
++                src_node->udp_sockaddr4.sin_addr = node_addr->addr.in.sin_addr;
+                 src_node->udp_sockaddr4.sin_port = tun_port_net;
+                 addr_update = 1;
+             }
+diff --git a/src/gnb_unified_forwarding.c b/src/gnb_unified_forwarding.c
+index 90a2729..c95f9ec 100644
+--- a/src/gnb_unified_forwarding.c
++++ b/src/gnb_unified_forwarding.c
+@@ -209,7 +209,7 @@ int gnb_unified_forwarding_with_multi_path_tun(gnb_core_t *gnb_core, gnb_pf_ctx_
+         GNB_LOG3(gnb_core->log, GNB_LOG_ID_PF, "*>> Unified Forwarding with Multi-Path to tun %llu=>%llu=>%llu seq=%"PRIu64" *>>\n", gnb_core->local_node->uuid64, dst_node->uuid64, dst_node->unified_forwarding_nodeid, dst_node->unified_forwarding_send_seq);
+ 
+         //最多转发5个节点
+-        if ( c >= 5 ) {
++        if ( c >= GNB_UNIFIED_FORWARDING_MAX_MULTI_PATH ) {
+             break;
+         }
+ 
+diff --git a/src/gnb_unified_forwarding.h b/src/gnb_unified_forwarding.h
+index 2edde09..41a3a21 100644
+--- a/src/gnb_unified_forwarding.h
++++ b/src/gnb_unified_forwarding.h
+@@ -36,6 +36,8 @@ int gnb_unified_forwarding_with_multi_path_tun(gnb_core_t *gnb_core, gnb_pf_ctx_
+ #define UNIFIED_FORWARDING_TO_TUN   0
+ #define UNIFIED_FORWARDING_TO_INET  1
+ 
++#define GNB_UNIFIED_FORWARDING_MAX_MULTI_PATH 5
++
+ void gnb_setup_unified_forwarding_nodeid(gnb_core_t *gnb_core, gnb_node_t *dst_node);
+ int gnb_unified_forwarding_inet(gnb_core_t *gnb_core, gnb_payload16_t *payload);
+ int gnb_unified_forwarding_multi_path_inet(gnb_core_t *gnb_core, gnb_payload16_t *payload);
+-- 
+2.37.1 (Apple Git-137.1)
+
