@@ -1,0 +1,635 @@
+From 7603b3243a9b7a6653dcbe09853d3c5ab8a89678 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Mon, 15 Sep 2025 12:14:43 +0800
+Subject: [PATCH 4/9] add gnb_exporter
+
+---
+ Makefile.Darwin        |  12 +-
+ Makefile.freebsd       |  13 +-
+ Makefile.inc           |   6 +
+ Makefile.linux         |  12 +-
+ Makefile.mingw_x86_64  |  13 +-
+ Makefile.openbsd       |  12 +-
+ Makefile.openwrt       |  12 +-
+ src/cli/gnb_exporter.c | 291 +++++++++++++++++++++++++++++++++++++++++
+ 8 files changed, 344 insertions(+), 27 deletions(-)
+ create mode 100644 src/cli/gnb_exporter.c
+
+diff --git a/Makefile.Darwin b/Makefile.Darwin
+index d12a971..ebda5b1 100644
+--- a/Makefile.Darwin
++++ b/Makefile.Darwin
+@@ -22,7 +22,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/unix/unix_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ ${GNB_CTL}: ${GNB_CTL_OBJS}
+@@ -44,21 +44,25 @@ ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJ
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 	strip ${GNB_CLI}
+ 
++${GNB_EXPORTER}: $(GNB_EXPORTER_OBJS)
++	${CC} ${CFLAGS} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS} ${CLI_LDFLAGS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
++	cp ${GNB_EXPORTER} ./bin/
++
+ 
+ clean:
+-	find . -name "*.o" -exec rm -f {} \;	
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	find . -name "*.o" -exec rm -f {} \;
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+ 
+diff --git a/Makefile.freebsd b/Makefile.freebsd
+index fd3363c..19eaf5c 100644
+--- a/Makefile.freebsd
++++ b/Makefile.freebsd
+@@ -15,7 +15,7 @@ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+ GNB_CLI=gnb
+-
++GNB_EXPORTER=exporter
+ 
+ include Makefile.inc
+ 
+@@ -28,7 +28,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/unix/unix_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ $(GNB_CTL): $(GNB_CTL_OBJS)
+@@ -46,22 +46,25 @@ $(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+ $(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS} ${ZLIB_OBJS}
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 
++$(GNB_EXPORTER): $(GNB_EXPORTER_OBJS)
++	${CC} ${CFLAGS} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS} ${CLI_LDFLAGS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
++	cp ${GNB_EXPORTER} ./bin/
+ 
+ 
+-clean:	
++clean:
+ 	find . -name "*.o" -exec rm -f {} \;
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+ 
+diff --git a/Makefile.inc b/Makefile.inc
+index 0b82c18..739dea1 100644
+--- a/Makefile.inc
++++ b/Makefile.inc
+@@ -132,5 +132,11 @@ GNB_CTL_OBJS =                                   \
+        ./src/gnb_nodeid.o                        \
+        ./libs/ed25519/sha512.o
+ 
++GNB_EXPORTER_OBJS =                              \
++       ./src/cli/gnb_exporter.o                  \
++       ./src/gnb_ctl_block.o                     \
++       ./src/gnb_time.o                          \
++       ./src/gnb_mmap.o
++
+ GNB_OBJS    += ./src/gnb_mod_register.o
+ GNB_ES_OBJS += ./src/es/gnb_es_platform.o
+diff --git a/Makefile.linux b/Makefile.linux
+index 0334cad..bb2d88d 100644
+--- a/Makefile.linux
++++ b/Makefile.linux
+@@ -16,7 +16,7 @@ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+ GNB_CLI=gnb
+-
++GNB_EXPORTER=gnb_exporter
+ 
+ include Makefile.inc
+ 
+@@ -29,7 +29,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/unix/unix_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ $(GNB_CTL): $(GNB_CTL_OBJS)
+@@ -47,21 +47,23 @@ $(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+ $(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS} ${ZLIB_OBJS}
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 
++$(GNB_EXPORTER): $(GNB_EXPORTER_OBJS)
++	${CC} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
+-
++	cp ${GNB_EXPORTER} ./bin/
+ 
+ clean:
+ 	find . -name "*.o" -exec rm -f {} \;
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core core.*
+ 	rm -f *.exe
+diff --git a/Makefile.mingw_x86_64 b/Makefile.mingw_x86_64
+index 22617bd..410399d 100644
+--- a/Makefile.mingw_x86_64
++++ b/Makefile.mingw_x86_64
+@@ -8,7 +8,7 @@ GNB_CRYPTO=gnb_crypto.exe
+ GNB_CTL=gnb_ctl.exe
+ GNB_ES=gnb_es.exe
+ GNB_CLI=gnb.exe
+-
++GNB_EXPORTER=gnb_exporter.exe
+ 
+ include Makefile.inc
+ 
+@@ -23,7 +23,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/mingw/windows_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ ${GNB_CTL}: ${GNB_CTL_OBJS} ./src/mingw/gnb_res.o
+@@ -34,13 +34,15 @@ ${GNB_ES}: ${GNB_ES_OBJS} ${CRYPTO_OBJS} ${MINIUPNP_OBJS} ${LIBNATPMP_OBJS}
+ 	${CC} -o ${GNB_ES} ${GNB_ES_OBJS} ${CRYPTO_OBJS} ${MINIUPNP_OBJS} ${LIBNATPMP_OBJS} ./src/mingw/gnb_res.o ${GNB_ES_LDFLAGS}
+ 
+ 
+-$(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
++${GNB_CRYPTO}: ${CRYPTO_OBJS} ./src/cli/gnb_crypto.o
+ 	${CC} -o ${GNB_CRYPTO} ./src/cli/gnb_crypto.o ${CRYPTO_OBJS} ${CLI_LDFLAGS}
+ 
+ 
+ ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS}
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 
++${GNB_EXPORTER}: ${GNB_EXPORTER_OBJS}
++	${CC} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+@@ -49,16 +51,17 @@ ${GNB_CLI}: ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJ
+ 	${WINDRES} ./src/mingw/gnb_res.rc -o ./src/mingw/gnb_res.o
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
++	cp ${GNB_EXPORTER} ./bin/
+ 
+ clean:
+ 	find . -name "*.o" -exec rm -f {} \;
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+ 
+diff --git a/Makefile.openbsd b/Makefile.openbsd
+index 8294ec3..dce4f3b 100644
+--- a/Makefile.openbsd
++++ b/Makefile.openbsd
+@@ -6,6 +6,7 @@ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+ GNB_CLI=gnb
++GNB_EXPORTER=gnb_exporter
+ 
+ 
+ include Makefile.inc
+@@ -19,7 +20,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/unix/unix_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ $(GNB_CTL): $(GNB_CTL_OBJS)
+@@ -37,22 +38,25 @@ $(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+ $(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS} ${ZLIB_OBJS}
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 
++$(GNB_EXPORTER): $(GNB_EXPORTER_OBJS)
++	${CC} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
++	cp ${GNB_EXPORTER} ./bin/
+ 
+ 
+-clean:	
++clean:
+ 	find . -name "*.o" -exec rm -f {} \;
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+ 
+diff --git a/Makefile.openwrt b/Makefile.openwrt
+index 9a37698..e787afd 100644
+--- a/Makefile.openwrt
++++ b/Makefile.openwrt
+@@ -15,6 +15,7 @@ GNB_CRYPTO=gnb_crypto
+ GNB_CTL=gnb_ctl
+ GNB_ES=gnb_es
+ GNB_CLI=gnb
++GNB_EXPORTER=gnb_exporter
+ 
+ 
+ include Makefile.inc
+@@ -28,7 +29,7 @@ GNB_CLI_OBJS =                             \
+ 
+ GNB_ES_OBJS += ./src/unix/unix_platform.o
+ 
+-all:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 
+ 
+ $(GNB_CTL): $(GNB_CTL_OBJS)
+@@ -46,22 +47,25 @@ $(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+ $(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS} ${ZLIB_OBJS}
+ 	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} ${ZLIB_OBJS} ${CLI_LDFLAGS}
+ 
++$(GNB_EXPORTER): $(GNB_EXPORTER_OBJS)
++	${CC} -o ${GNB_EXPORTER} ${GNB_EXPORTER_OBJS}
+ 
+ %.o:%.c
+ 	${CC} ${CFLAGS} -c -o $@ $<
+ 
+ 
+-install:${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	mkdir -p         ./bin/
+ 	cp ${GNB_CLI}    ./bin/
+ 	cp ${GNB_CTL}    ./bin/
+ 	cp ${GNB_CRYPTO} ./bin/
+ 	cp ${GNB_ES}     ./bin/
++	cp ${GNB_EXPORTER} ./bin/
+ 
+ 
+-clean:	
++clean:
+ 	find . -name "*.o" -exec rm -f {} \;
+-	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
++	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL} ${GNB_EXPORTER}
+ 	rm -f core
+ 	rm -f *.exe
+ 
+diff --git a/src/cli/gnb_exporter.c b/src/cli/gnb_exporter.c
+new file mode 100644
+index 0000000..197b512
+--- /dev/null
++++ b/src/cli/gnb_exporter.c
+@@ -0,0 +1,291 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <inttypes.h>
++#include <sys/socket.h>
++#include <sys/time.h>
++#include <netinet/in.h>
++#include <time.h>
++#include <getopt.h>
++#include <errno.h>
++#include <limits.h>
++
++#include "gnb_ctl_block.h"
++
++#define BUFFER_SIZE 2048
++
++#ifndef GNB_SKIP_BUILD_TIME
++#define GNB_BUILD_STRING  "Build Time ["__DATE__","__TIME__"]"
++#else
++#define GNB_BUILD_STRING  "Build Time [Hidden]"
++#endif
++
++static int g_server_fd = -1;
++
++void cleanup() {
++    if (g_server_fd != -1) {
++        printf("Closing server socket...\n");
++        close(g_server_fd);
++        g_server_fd = -1;
++    }
++}
++
++static void show_useage(int argc, char *argv[]){
++    printf("GNB Exporter version 1.6.0.a protocol version 1.6.0\n");
++    printf("%s\n", GNB_BUILD_STRING);
++    printf("Copyright (C) 2019 gnbdev\n");
++    printf("Usage: %s -b CTL_BLOCK [OPTION]\n", argv[0]);
++    printf("Command Summary:\n");
++    printf("  -b, --ctl-block           ctl block mapper file\n");
++    printf("  -p, --port                tcp port listen to\n");
++    printf("      --help\n");
++    printf("example:\n");
++    printf("%s -b gnb.map -p 9100\n",argv[0]);
++
++}
++
++// Function to generate the Prometheus metrics string
++void generate_metrics_string(char *buffer, size_t buffer_size, char *ctl_block_file) {
++    size_t offset = 0;
++    char *network;
++    gnb_ctl_block_t *ctl_block;
++
++    int ret;
++    ctl_block = gnb_get_ctl_block(ctl_block_file, 0);
++    if (NULL == ctl_block) {
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "open ctl block error [%s]\n", ctl_block_file
++        );
++        return;
++    }
++
++    network = ctl_block->core_zone->ifname;
++    if (strncmp(network, "gnb-", 4) == 0) {
++        network += 4;
++    }
++
++    uint8_t instance_up = 0; 
++    if (time(NULL) - ctl_block->status_zone->keep_alive_ts_sec<5) {
++        instance_up = 1;
++    }
++
++    ret = snprintf(buffer + offset, buffer_size - offset,
++        "gnb_instance_up{network=\"%s\"} %"PRIu8"\n",
++        network, instance_up
++    );
++    if (ret < 0 || ret >= buffer_size - offset) {
++        gnb_mmap_release(ctl_block->mmap_block);
++        return;
++    }
++    offset += ret;
++
++    gnb_node_t *node;
++    size_t node_num;
++    node_num = ctl_block->node_zone->node_num;
++
++    size_t i;
++
++    for (i = 0; i < node_num; i++) {
++        node = &ctl_block->node_zone->node[i];
++        if (!((GNB_NODE_STATUS_IPV6_PONG | GNB_NODE_STATUS_IPV4_PONG) & node->udp_addr_status) ) continue;
++
++        uint8_t state = 0;
++        if (GNB_NODE_STATUS_IPV4_PONG & node->udp_addr_status) state|=1;
++        if (GNB_NODE_STATUS_IPV6_PONG & node->udp_addr_status) state|=2;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_node_state{network=\"%s\",node=\"%"PRIu64"\"} %"PRIu8"\n",
++            network, node->uuid64, state
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_node_detect_count{network=\"%s\",node=\"%"PRIu64"\"} %"PRIu32"\n",
++            network, node->uuid64, node->detect_count
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_network_receive_bytes_total{network=\"%s\",node=\"%"PRIu64"\"} %"PRIu64"\n",
++            network, node->uuid64, node->out_bytes
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_network_transmit_bytes_total{network=\"%s\",node=\"%"PRIu64"\"} %"PRIu64"\n",
++            network, node->uuid64, node->in_bytes
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_node_addr4_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
++            network, node->uuid64, node->addr4_ping_latency_usec/1000
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++
++        ret = snprintf(buffer + offset, buffer_size - offset,
++            "gnb_node_addr6_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
++            network, node->uuid64, node->addr6_ping_latency_usec/1000
++        );
++        if (ret < 0 || ret >= buffer_size - offset) break;
++        offset += ret;
++    }
++    
++    gnb_mmap_release(ctl_block->mmap_block);
++}
++
++// Main function to run the HTTP server
++int main(int argc, char *argv[]) {
++    int new_socket;
++    struct sockaddr_in address;
++    int addrlen = sizeof(address);
++    char buffer[BUFFER_SIZE] = {0};
++
++    char *ctl_block_file = NULL;
++    uint16_t listen_port = 9100;
++
++    static struct option long_options[] = {
++
++      { "ctl-block",            required_argument, 0, 'b' },
++      { "port",                 required_argument, 0, 'p' },
++      { "help",                 no_argument,       0, 'h' },
++      { 0, 0, 0, 0 }
++    };
++
++    setvbuf(stdout,NULL,_IOLBF,0);
++    
++    atexit(cleanup);
++
++    int opt;
++
++    while (1) {
++
++        int option_index = 0;
++
++        opt = getopt_long (argc, argv, "b:p:",long_options, &option_index);
++
++        if ( opt == -1 ) {
++            break;
++        }
++
++        switch (opt) {
++        case 'b':
++            ctl_block_file = optarg;
++            break;
++
++        case 'p':
++            errno = 0;
++            char *endptr;
++            unsigned long val;
++            val = strtoul(optarg, &endptr, 10);
++            if (errno != 0 || *endptr != '\0' || endptr == optarg || val > USHRT_MAX) {
++                fprintf(stderr, "Invalid port number: '%s'\n", optarg);
++                return EXIT_FAILURE;
++            }
++            listen_port = (uint16_t)val;
++            break;
++        case 'h':
++            show_useage(argc, argv);
++            exit(0);
++        default:
++            break;
++        }
++    }
++
++
++    if ( NULL == ctl_block_file ) {
++        show_useage(argc,argv);
++        exit(0);
++    }
++
++    // Create a TCP socket
++    if ((g_server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
++        perror("Socket creation failed");
++        exit(EXIT_FAILURE);
++    }
++    
++    int opt_reuse = 1;
++    if (setsockopt(g_server_fd, SOL_SOCKET, SO_REUSEADDR, &opt_reuse, sizeof(opt_reuse))) {
++        perror("setsockopt failed");
++        close(g_server_fd);
++        exit(EXIT_FAILURE);
++    }
++
++    // Set server address and port
++    address.sin_family = AF_INET;
++    address.sin_addr.s_addr = INADDR_ANY;
++    address.sin_port = htons(listen_port);
++
++    // Bind the socket to the address and port
++    if (bind(g_server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
++        perror("Bind failed");
++        exit(EXIT_FAILURE);
++    }
++
++    // Listen for incoming connections
++    if (listen(g_server_fd, 10) < 0) {
++        perror("Listen failed");
++        exit(EXIT_FAILURE);
++    }
++
++    printf("Prometheus exporter listening on TCP port %d...\n", listen_port);
++
++    while (1) {
++        // Accept a new connection
++        if ((new_socket = accept(g_server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
++            perror("Accept failed");
++            continue;
++        }
++
++        struct timeval timeout;
++        timeout.tv_sec = 5;
++        timeout.tv_usec = 0;
++
++        if (setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
++            perror("setsockopt SO_RCVTIMEO failed");
++            close(new_socket);
++            continue;
++        }
++
++        if (setsockopt(new_socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
++            perror("setsockopt SO_SNDTIMEO failed");
++            close(new_socket);
++            continue;
++        }
++
++        // Read the incoming HTTP request
++        read(new_socket, buffer, BUFFER_SIZE);
++
++        // A simple check for GET /metrics
++        if (strncmp(buffer, "GET /metrics", 12) == 0) {
++            char metrics_string[BUFFER_SIZE] = {0};
++            generate_metrics_string(metrics_string, sizeof(metrics_string), ctl_block_file);
++
++            // Construct the HTTP response
++            char http_response[BUFFER_SIZE * 2] = {0};
++            snprintf(http_response, sizeof(http_response),
++                "HTTP/1.1 200 OK\r\n"
++                "Content-Type: text/plain; version=0.0.4\r\n"
++                "Content-Length: %zu\r\n"
++                "\r\n"
++                "%s",
++                strlen(metrics_string),
++                metrics_string
++            );
++
++            // Send the response
++            write(new_socket, http_response, strlen(http_response));
++        }
++
++        // Close the connection
++        close(new_socket);
++    }
++
++    return 0;
++}
+\ No newline at end of file
+-- 
+2.37.1 (Apple Git-137.1)
+

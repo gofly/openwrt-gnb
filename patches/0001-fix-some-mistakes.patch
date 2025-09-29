@@ -1,0 +1,1270 @@
+From 66f7b6b3fe7b10867d64fc6012b2e192df795408 Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sun, 28 Sep 2025 00:40:13 +0800
+Subject: [PATCH 1/9] fix some mistakes
+
+---
+ src/gnb_alloc.c                       |   3 +
+ src/gnb_arg_list.c                    | 132 +++-------
+ src/gnb_argv.c                        |  12 +-
+ src/gnb_detect_worker.c               |   9 +-
+ src/gnb_index_service_worker.c        |   2 -
+ src/gnb_index_worker.c                |   2 +
+ src/gnb_log.c                         |   4 +-
+ src/gnb_log.h                         | 353 +++++++++++++-------------
+ src/gnb_node_worker.c                 | 141 +++++++---
+ src/gnb_pf.c                          |  12 +-
+ src/gnb_pf_worker.c                   |  18 +-
+ src/gnb_primary_worker.c              |  37 ++-
+ src/gnb_secure_index_service_worker.c |   4 +-
+ src/gnb_secure_index_worker.c         |  35 ++-
+ src/gnb_unified_forwarding.c          |  12 +-
+ src/gnb_worker_type.h                 |   6 +-
+ 16 files changed, 426 insertions(+), 356 deletions(-)
+
+diff --git a/src/gnb_alloc.c b/src/gnb_alloc.c
+index ad821a0..10eff58 100755
+--- a/src/gnb_alloc.c
++++ b/src/gnb_alloc.c
+@@ -143,6 +143,9 @@ finish:
+ 
+     gnb_heap->fragment_nums--;
+ 
++    // 清理悬挂指针，防止在后续操作中被错误地访问
++    gnb_heap->fragment_list[gnb_heap->fragment_nums] = NULL;
++
+     free(fragment);
+ 
+ }
+diff --git a/src/gnb_arg_list.c b/src/gnb_arg_list.c
+index a812bdc..b5c633b 100755
+--- a/src/gnb_arg_list.c
++++ b/src/gnb_arg_list.c
+@@ -17,6 +17,7 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#include <stdbool.h>
+ 
+ #include "gnb_arg_list.h"
+ 
+@@ -112,110 +113,53 @@ int gnb_arg_list_to_string(gnb_arg_list_t *arg_list, char *string, size_t string
+ #define ARG_STRING              1
+ 
+ gnb_arg_list_t *gnb_arg_string_to_list(char *string, int num){
+-    
+-    int status = ARG_SEPARATOR;
+-    
+-    int separator = SPACE_SEPARATOR;
+-    
+-    char *arg;
+-    char *arg_p;
+-    
+-    arg = malloc(GNB_ARG_MAX_SIZE);
+-    
+-    arg_p = arg;
+-    
+-    char *p;
+-    
+-    p = (char *)string;
+-    
++
+     gnb_arg_list_t *arg_list = gnb_arg_list_init(num);
+-    
+-    int c = 0;
++    char *p = string;
++    char buffer[GNB_ARG_MAX_SIZE];
++    int buffer_idx = 0;
++    bool in_quotes = false;
++    char quote_char = '\0';
+ 
+     while (*p) {
+-        
+-        if ( c>=GNB_ARG_STRING_MAX_SIZE ) {
+-            break;
+-        }
+-        
+-        if ( ' ' == *p ) {
+-        
+-            if ( ARG_STRING == status && SPACE_SEPARATOR == separator ) {
+-                
+-                *arg_p = '\0';
+-                gnb_arg_append(arg_list,arg);
+-                arg_p = arg;
+-                status = ARG_SEPARATOR;
+-                goto next;
+-                
++        if (in_quotes) {
++            if (*p == quote_char) {
++                // 结束引号
++                in_quotes = false;
++                quote_char = '\0';
++            } else {
++                buffer[buffer_idx++] = *p;
+             }
+-            
+-            if ( ARG_STRING == status && ( SINGLE_QUOTES_SEPARATOR == separator || DOUBLE_QUOTES_SEPARATOR == separator ) ) {
+-   
+-                *arg_p = *p;
+-                arg_p++;
+-                status = ARG_SEPARATOR;
+-                goto next;
+-                
++        } else {
++            if (*p == '\'' || *p == '"') {
++                // 开始引号
++                in_quotes = true;
++                quote_char = *p;
++            } else if (*p == ' ') {
++                // 遇到空格，一个参数结束
++                if (buffer_idx > 0) {
++                    buffer[buffer_idx] = '\0';
++                    gnb_arg_append(arg_list, buffer);
++                    buffer_idx = 0;
++                }
++            } else {
++                // 普通字符
++                buffer[buffer_idx++] = *p;
+             }
+-            
+         }
+-        
+-        if ( '\'' == *p ) {
+-        
+-            if ( SPACE_SEPARATOR == separator ) {
+-                separator = SINGLE_QUOTES_SEPARATOR;
+-                status = ARG_STRING;
+-                goto next;
+-            }
+-            
+-            
+-            if ( ARG_STRING == status && SINGLE_QUOTES_SEPARATOR == separator ) {
+-                
+-                *arg_p = '\0';
+-                gnb_arg_append(arg_list,arg);
+-                arg_p = arg;
+-                
+-                separator = SPACE_SEPARATOR;
+-                status    = ARG_SEPARATOR;
+-                
+-                goto next;
+-                
+-            }
+-            
+-            
+-        }
+-        
+-        if ( ' ' != *p && SPACE_SEPARATOR == separator ) {
+-            
+-            status = ARG_STRING;
+-            *arg_p = *p;
+-            arg_p++;
+-            goto next;
+-            
+-        } else if ( SPACE_SEPARATOR != separator ) {
+-        
+-            status = ARG_STRING;
+ 
+-            *arg_p = *p;
+-            arg_p++;
+-            goto next;
+-            
++        if (buffer_idx >= GNB_ARG_MAX_SIZE - 1) {
++            // 防止缓冲区溢出
++            break;
+         }
+-        
+-next:
+         p++;
+-        c++;
+-    
+-    };
+-    
+-    if ( arg_p != arg ) {
+-        *arg_p = '\0';
+-        gnb_arg_append(arg_list,arg);
+     }
+-    
+-    free(arg);
++
++    // 处理最后一个参数
++    if (buffer_idx > 0) {
++        buffer[buffer_idx] = '\0';
++        gnb_arg_append(arg_list, buffer);
++    }
+ 
+     return arg_list;
+-    
+ }
+diff --git a/src/gnb_argv.c b/src/gnb_argv.c
+index 7d197ba..c688cd7 100755
+--- a/src/gnb_argv.c
++++ b/src/gnb_argv.c
+@@ -33,6 +33,8 @@ extern gnb_conf_ext_lite_t gnb_conf_ext_lite;
+ 
+ void show_description();
+ 
++#define GNB_DEFAULT_LISTEN_PORT 9001
++
+ static void show_useage(int argc,char *argv[]);
+ 
+ int check_listen_string(char *listen_string);
+@@ -992,15 +994,15 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+     if ( '\0' != listen_sockaddress6_string[0] ) {
+         gnb_setup_listen_addr_port(conf->listen_address6_string, &conf->udp6_ports[0], listen_sockaddress6_string, AF_INET6);
+     } else {
+-        strncpy(conf->listen_address6_string,"::", sizeof("::")-1);
+-        conf->udp6_ports[0] = 9001;
++        strncpy(conf->listen_address6_string, "::", sizeof("::")-1);
++        conf->udp6_ports[0] = GNB_DEFAULT_LISTEN_PORT;
+     }
+ 
+     if ( '\0' != listen_sockaddress4_string[0] ) {
+         gnb_setup_listen_addr_port(conf->listen_address4_string, &conf->udp4_ports[0], listen_sockaddress4_string, AF_INET);
+     } else {
+-        strncpy(conf->listen_address4_string,"0.0.0.0", sizeof("0.0.0.0")-1);
+-        conf->udp4_ports[0] = 9001;
++        strncpy(conf->listen_address4_string, "0.0.0.0", sizeof("0.0.0.0")-1);
++        conf->udp4_ports[0] = GNB_DEFAULT_LISTEN_PORT;
+     }
+ 
+     if ( '\0' == conf->conf_dir[0] ) {
+@@ -1118,7 +1120,7 @@ static void show_useage(int argc,char *argv[]){
+     printf("  -U, --unified-forwarding          \"off\",\"force\",\"auto\",\"super\",\"hyper\" default:\"auto\"; cannot be used with --pf-worker\n");
+ 
+ 
+-    printf("  -l, --listen                      listen address default:\"0.0.0.0:9001\"\n");
++    printf("  -l, --listen                      listen address default:\"0.0.0.0:%d\"\n", GNB_DEFAULT_LISTEN_PORT);
+     printf("  -b, --ctl-block                   ctl block mapper file\n");
+     printf("  -e, --es-argv                     pass-through gnb_es argv\n");
+     printf("  -V, --verbose                     verbose mode\n");
+diff --git a/src/gnb_detect_worker.c b/src/gnb_detect_worker.c
+index fe7580e..4359f26 100755
+--- a/src/gnb_detect_worker.c
++++ b/src/gnb_detect_worker.c
+@@ -313,9 +313,16 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+ 
+ static void release(gnb_worker_t *gnb_worker){
+ 
+-    detect_worker_ctx_t *detect_worker_ctx =  (detect_worker_ctx_t *)gnb_worker->ctx;
++    if (!gnb_worker || !gnb_worker->ctx) {
++        return;
++    }
++    detect_worker_ctx_t *detect_worker_ctx = (detect_worker_ctx_t *)gnb_worker->ctx;
+     gnb_core_t *gnb_core = detect_worker_ctx->gnb_core;
+ 
++    gnb_heap_free(gnb_core->heap, detect_worker_ctx->index_frame_payload);
++    gnb_heap_free(gnb_core->heap, detect_worker_ctx);
++    gnb_worker->ctx = NULL;
++
+ }
+ 
+ 
+diff --git a/src/gnb_index_service_worker.c b/src/gnb_index_service_worker.c
+index 3e9f462..701cb10 100755
+--- a/src/gnb_index_service_worker.c
++++ b/src/gnb_index_service_worker.c
+@@ -128,10 +128,8 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+         address4_list->size = GNB_KEY_ADDRESS_NUM;
+ 
+     } else {
+-
+         address6_list = (gnb_address_list_t *)key_address->address6_list_block;
+         address4_list = (gnb_address_list_t *)key_address->address4_list_block;
+-
+     }
+ 
+     key_address->uuid64 = gnb_ntohll(post_addr_frame->data.src_uuid64);
+diff --git a/src/gnb_index_worker.c b/src/gnb_index_worker.c
+index f11a157..83865b0 100755
+--- a/src/gnb_index_worker.c
++++ b/src/gnb_index_worker.c
+@@ -813,6 +813,8 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+     gnb_worker->ring_buffer_out = NULL;
+     gnb_worker->ctx = index_worker_ctx;
+ 
++    gnb_worker->send_request_addr_frame_func = send_request_addr_frame;
++
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "%s in ring buffer size = %d\n", gnb_worker->name, gnb_core->conf->index_woker_queue_length);
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "%s init finish\n", gnb_worker->name);
+ 
+diff --git a/src/gnb_log.c b/src/gnb_log.c
+index f7efe39..c3cd258 100755
+--- a/src/gnb_log.c
++++ b/src/gnb_log.c
+@@ -415,7 +415,6 @@ int gnb_log_file_rotate(gnb_log_ctx_t *log){
+     int mday = gnb_now_mday();
+ 
+     if (mday == log->pre_mday) {
+-        close_log_file_pre_fd(log);
+         return 0;
+     }
+ 
+@@ -423,6 +422,9 @@ int gnb_log_file_rotate(gnb_log_ctx_t *log){
+         return 1;
+     }
+ 
++    // 在重命名文件之前，关闭上一轮保存的旧文件描述符
++    close_log_file_pre_fd(log);
++
+     log->pre_mday = mday;
+ 
+     gnb_now_timef("%Y_%m_%d",now_time_string,GNB_TIME_STRING_MAX);
+diff --git a/src/gnb_log.h b/src/gnb_log.h
+index 60c6a6c..b5de0df 100755
+--- a/src/gnb_log.h
++++ b/src/gnb_log.h
+@@ -58,189 +58,182 @@ int gnb_log_file_rotate(gnb_log_ctx_t *log);
+ int gnb_log_udp_set_addr4(gnb_log_ctx_t *log, char *ip, uint16_t port4);
+ int gnb_log_udp_set_addr6(gnb_log_ctx_t *log, char *ip, uint16_t port6);
+ 
+-
+ int gnb_log_udp_set_addr4_string(gnb_log_ctx_t *log, char *sockaddress4_string);
+ 
+ 
+-#define GNB_LOG1(log,log_id,format,...)                                                          \
+-        do{                                                                                      \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                   \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                   \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                     \
+-                ){                                                                               \
+-				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__);   \
+-			}                                                                                    \
+-        }while(0);
+-
+-
+-
+-#define GNB_LOG2(log,log_id,format,...)                                                          \
+-        do{                                                                                      \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                   \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                   \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                     \
+-                ){                                                                               \
+-				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__);   \
+-			}                                                                                    \
+-        }while(0);
+-
+-
+-#define GNB_LOG3(log,log_id,format,...)                                                          \
+-        do{                                                                                      \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                   \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                   \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                     \
+-                ){                                                                               \
+-				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__);   \
+-			}                                                                                    \
+-        }while(0);
+-
+-
+-#define GNB_LOG4(log,log_id,format,...)                                                          \
+-        do{                                                                                      \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                   \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                   \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                     \
+-                ){                                                                               \
+-				gnb_logf(log, GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__);  \
+-			}                                                                                    \
+-        }while(0);
+-
+-
+-#define GNB_LOG5(log,log_id,format,...)                                                          \
+-        do{                                                                                      \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                   \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                   \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                     \
+-                ){                                                                               \
+-				gnb_logf(log, GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__);  \
+-			}                                                                                    \
+-        }while(0);
+-
+-
+-#define GNB_DEBUG1(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_DEBUG2(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_DEBUG3(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_DEBUG4(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_DEBUG5(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_ERROR1(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_ERROR2(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_ERROR3(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_ERROR4(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
+-
+-
+-#define GNB_ERROR5(log,log_id,format,...)                                                         \
+-        do{                                                                                       \
+-			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+-				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                    \
+-                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                    \
+-				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                      \
+-                ){                                                                                \
+-				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+-			}                                                                                     \
+-        }while(0);
++#define GNB_LOG1(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
++				log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
++		){ \
++			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++#define GNB_LOG2(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
++		){ \
++			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++#define GNB_LOG3(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
++		){ \
++			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++#define GNB_LOG4(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
++		){ \
++			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++#define GNB_LOG5(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
++		){ \
++			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++#define GNB_DEBUG1(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_DEBUG2(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_DEBUG3(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_DEBUG4(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_DEBUG5(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_ERROR1(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_ERROR2(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_ERROR3(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_ERROR4(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
++
++
++#define GNB_ERROR5(log,log_id,format,...) \
++	do{ \
++		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
++			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
++			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
++		){ \
++			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
++		} \
++	} while(0);
+ 
+ 
+ #endif
+diff --git a/src/gnb_node_worker.c b/src/gnb_node_worker.c
+index be7e5bc..94bc9f1 100755
+--- a/src/gnb_node_worker.c
++++ b/src/gnb_node_worker.c
+@@ -225,6 +225,8 @@ static void unifield_forwarding_notify(gnb_core_t *gnb_core, gnb_node_t *dst_nod
+ 
+ static void send_ping_frame(gnb_core_t *gnb_core, gnb_node_t *node){
+ 
++    unsigned char addr_type_bits = 0;
++
+     int ret;
+ 
+     gnb_worker_t *primary_worker = gnb_core->primary_worker;
+@@ -232,7 +234,15 @@ static void send_ping_frame(gnb_core_t *gnb_core, gnb_node_t *node){
+     node_worker_ctx_t *node_worker_ctx = gnb_core->node_worker->ctx;
+ 
+     if ( INADDR_ANY == node->udp_sockaddr4.sin_addr.s_addr && 0 == memcmp(&node->udp_sockaddr6.sin6_addr,&in6addr_any,sizeof(struct in6_addr)) ) {
+-        return;
++        return; // 如果 IPv4 和 IPv6 地址都无效，则不发送
++    }
++
++    // 确定要向哪些有效地址发送 PING
++    if (INADDR_ANY != node->udp_sockaddr4.sin_addr.s_addr) {
++        addr_type_bits |= GNB_ADDR_TYPE_IPV4;
++    }
++    if (0 != memcmp(&node->udp_sockaddr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr))) {
++        addr_type_bits |= GNB_ADDR_TYPE_IPV6;
+     }
+ 
+     if ( GNB_NODE_STATUS_UNREACHABL == node->udp_addr_status ) {
+@@ -258,8 +268,8 @@ static void send_ping_frame(gnb_core_t *gnb_core, gnb_node_t *node){
+         ed25519_sign(node_ping_frame->src_sign, (const unsigned char *)&node_ping_frame->data, sizeof(struct ping_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
+     }
+ 
+-    //PING frame 尽可能 ipv4 和 ipv6 都发送
+-    gnb_send_to_node(gnb_core, node, node_worker_ctx->node_frame_payload, GNB_ADDR_TYPE_IPV6|GNB_ADDR_TYPE_IPV4);
++    // 只向有效的地址发送 PING
++    gnb_send_to_node(gnb_core, node, node_worker_ctx->node_frame_payload, addr_type_bits);
+ 
+     //更新 node 的ping 时间戳
+     node->ping_ts_sec  = node_worker_ctx->now_time_sec;
+@@ -375,19 +385,40 @@ static void handle_ping_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+         //处理来自 LAN 的 ping frame
+         if ( PAYLOAD_SUB_TYPE_LAN_PING == node_worker_in_data->payload_st.sub_type ) {
+ 
+-            src_node->udp_sockaddr4 = node_addr->addr.in;
+-            //LAN ping 的端口存放在 attachment 中
+-            memcpy(&src_node->udp_sockaddr4.sin_port, node_ping_frame->data.attachment, sizeof(uint16_t));
++            /* attachment 应至少包含一个 uint16_t（端口），这里先做简单检查 */
++            // 如果你有 payload 长度查询函数，建议在此验证 attachment 长度
++            // e.g. if (gnb_payload16_get_data_len(&node_worker_in_data->payload_st) < expected) { log; return; }
+ 
+-            src_node->socket4_idx   = node_worker_in_data->socket_idx;
+-            addr_update = 1;
++            uint16_t tun_port_net = 0;
++            memcpy(&tun_port_net, node_ping_frame->data.attachment, sizeof(uint16_t)); // 假定 attachment 为网络字节序
++
++            /* 不要修改 src_node->udp_sockaddr4.sin_addr（那是接收到的 LAN IP），
++            仅更新端口（如果与已记录的端口不同） */
++            if ( src_node->udp_sockaddr4.sin_port != tun_port_net ) {
++                src_node->udp_sockaddr4.sin_port = tun_port_net;
++                addr_update = 1;
++            }
++
++            /* 更新 socket index 如果发生变化也算 addr_update */
++            if ( src_node->socket4_idx != node_worker_in_data->socket_idx ) {
++                src_node->socket4_idx = node_worker_in_data->socket_idx;
++                addr_update = 1;
++            }
+ 
+-            GNB_LOG3(gnb_core->log, GNB_LOG_ID_NODE_WORKER, "handle_ping_frame IPV4 LAN src[%llu]->dst[%llu] idx=%u %s now=%"PRIu64" src_ts=%"PRIu64" up=%u different=%"PRId64"\n",
++            /* 注意：如果你的协议约定 attachment 中端口是主机序而非网络序，这里需要用 htons/ntohs 处理 */
++            /* 例如，如果 attachment 是主机序，则：
++                uint16_t port_host;
++                memcpy(&port_host, node_ping_frame->data.attachment, sizeof(uint16_t));
++                uint16_t tun_port_net = htons(port_host);
++            并把 tun_port_net 存入 sockaddr.sin_port
++            */
++
++            GNB_LOG3(gnb_core->log, GNB_LOG_ID_NODE_WORKER,
++                    "handle_ping_frame IPV4 LAN src[%llu]->dst[%llu] idx=%u port=%u now=%"PRIu64" src_ts=%"PRIu64" up=%u different=%"PRId64"\n",
+                     src_node->uuid64, dst_uuid64,
+                     node_worker_in_data->socket_idx,
+-                    GNB_SOCKADDR4STR1(&src_node->udp_sockaddr4),
++                    (unsigned int)ntohs(src_node->udp_sockaddr4.sin_port),
+                     node_worker_ctx->now_time_usec, src_ts_usec, addr_update, latency_usec);
+-
+         }
+ 
+         src_node->udp_addr_status |= GNB_NODE_STATUS_IPV4_PING;
+@@ -433,16 +464,19 @@ static void handle_ping_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+     unsigned char addr_type_bits;
+ 
+     //根据源地址选择发送的类型
+-    if ( AF_INET == node_addr->addr_type ) {
++    switch ( node_addr->addr_type ) {
++    case AF_INET:
+         addr_type_bits = GNB_ADDR_TYPE_IPV4;
+-    }
+-
+-    if ( AF_INET6 == node_addr->addr_type ) {
++        break;
++    case AF_INET6:
+         addr_type_bits = GNB_ADDR_TYPE_IPV6;
++        break;
++    default:
++        GNB_LOG2(gnb_core->log, GNB_LOG_ID_NODE_WORKER, "handle_ping_frame unexpected addr_type=%d\n", node_addr->addr_type);
++        return;
+     }
+ 
+     gnb_send_to_node(gnb_core, src_node, node_worker_ctx->node_frame_payload, addr_type_bits);
+-
+ }
+ 
+ 
+@@ -497,8 +531,8 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+         address_st.latency_usec = 1;
+     }
+ 
+-    if ( AF_INET6 == node_addr->addr_type ) {
+-
++    switch ( node_addr->addr_type ) {
++    case AF_INET6:
+         if ( 0 != gnb_determine_subnet6_prefixlen96(node_addr->addr.in6.sin6_addr, gnb_core->local_node->tun_ipv6_addr ) ) {
+ 
+             GNB_LOG3(gnb_core->log, GNB_LOG_ID_NODE_WORKER, "handle_pong_frame IPV6 Warning src[%llu]->dst[%llu] idx=%u %s\n",
+@@ -543,11 +577,8 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+                 GNB_SOCKADDR6STR1(&src_node->udp_sockaddr6),
+                 node_worker_ctx->now_time_usec, dst_ts_usec, addr_update, src_node->addr6_ping_latency_usec);
+ 
+-
+-    }
+-
+-    if ( AF_INET == node_addr->addr_type ) {
+-
++        break;
++    case AF_INET:
+         if ( 0 != gnb_determine_subnet4(node_addr->addr.in.sin_addr,  gnb_core->local_node->tun_addr4, gnb_core->local_node->tun_netmask_addr4) ) {
+ 
+             GNB_LOG3(gnb_core->log, GNB_LOG_ID_NODE_WORKER, "handle_pong_frame IPV4 Warning src[%llu]->dst[%llu] idx=%u %s\n",
+@@ -591,7 +622,7 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+                 node_worker_in_data->socket_idx,
+                 GNB_SOCKADDR4STR1(&src_node->udp_sockaddr4),
+                 node_worker_ctx->now_time_usec, dst_ts_usec, addr_update, src_node->addr4_ping_latency_usec);
+-
++        break;
+     }
+ 
+     //处理附件
+@@ -607,6 +638,16 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+             src_node->tun_sin_port4 = attachment_tun_sockaddress->tun_sin_port4;
+         }
+ 
++        // 补充对 tun_addr4 的处理
++        if (src_node->tun_addr4.s_addr != attachment_tun_sockaddress->tun_addr4.s_addr) {
++            src_node->tun_addr4 = attachment_tun_sockaddress->tun_addr4;
++        }
++
++        // 补充对 IPv6 TUN 地址和端口的处理
++        if (memcmp(&src_node->tun_ipv6_addr, &attachment_tun_sockaddress->tun_ipv6_addr, sizeof(struct in6_addr)) != 0) {
++            src_node->tun_ipv6_addr = attachment_tun_sockaddress->tun_ipv6_addr;
++        }
++
+     }
+ 
+     if ( PAYLOAD_SUB_TYPE_PONG2 == node_worker_in_data->payload_st.sub_type ) {
+@@ -636,7 +677,7 @@ static void handle_pong_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *node_w
+     gnb_payload16_set_data_len(payload_attachment2, 0);
+     payload_attachment2->type = GNB_NODE_ATTACHMENT_TYPE_TUN_EMPTY;
+ 
+-    snprintf((char *)node_pong2_frame->data.text,32,"%llu --PONG2-> %llu",gnb_core->local_node->uuid64,src_node->uuid64);
++    snprintf((char *)node_pong2_frame->data.text,32,"%llu --PONG2-> %llu",gnb_core->local_node->uuid64, src_node->uuid64);
+ 
+     if ( 0 == gnb_core->conf->lite_mode ) {
+         ed25519_sign(node_pong2_frame->src_sign, (const unsigned char *)&node_pong2_frame->data, sizeof(struct pong_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
+@@ -696,10 +737,14 @@ static void sync_node(gnb_worker_t *gnb_node_worker){
+             gnb_core->index_address_ring.address_list->num > 0 )
+         {
+ 
+-            if ( (node_worker_ctx->now_time_sec - node->ping_ts_sec) >= GNB_NODE_PING_INTERVAL_SEC ) {
++            if ( (node_worker_ctx->now_time_sec - node->ping_ts_sec) >= GNB_NODE_PING_INTERVAL_SEC && gnb_core->index_worker && gnb_core->index_worker->send_request_addr_frame_func ) {
+                 //如果地址为 0.0.0.0 或 :: , 需要向 index node 发送 PAYLOAD_SUB_TYPE_ADDR_QUERY
++                if (gnb_core->index_worker && gnb_core->index_worker->send_request_addr_frame_func) {
++                    gnb_core->index_worker->send_request_addr_frame_func(gnb_core->index_worker, node);
++                }
+                 node->udp_addr_status = GNB_NODE_STATUS_UNREACHABL;
+                 node->ping_ts_sec = node_worker_ctx->now_time_sec;
++
+             }
+ 
+             continue;
+@@ -876,9 +921,16 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+ 
+ 
+ static void release(gnb_worker_t *gnb_worker){
+-
+-    node_worker_ctx_t *node_worker_ctx =  (node_worker_ctx_t *)gnb_worker->ctx;
+-
++    node_worker_ctx_t *node_worker_ctx = (node_worker_ctx_t *)gnb_worker->ctx;
++    if (!node_worker_ctx) return;
++    if (node_worker_ctx->node_frame_payload) {
++        gnb_heap_free(node_worker_ctx->gnb_core->heap, node_worker_ctx->node_frame_payload);
++        node_worker_ctx->node_frame_payload = NULL;
++    }
++    // 如果 ring buffer memory 在 init 分配了独立 pointer，也要 free
++    // 最后 free node_worker_ctx 自身
++    gnb_heap_free(node_worker_ctx->gnb_core->heap, node_worker_ctx);
++    gnb_worker->ctx = NULL;
+ }
+ 
+ 
+@@ -886,24 +938,33 @@ static int start(gnb_worker_t *gnb_worker){
+ 
+     node_worker_ctx_t *node_worker_ctx = gnb_worker->ctx;
+ 
+-    pthread_create(&node_worker_ctx->thread_worker, NULL, thread_worker_func, gnb_worker);
+-
+-    pthread_detach(node_worker_ctx->thread_worker);
+-
++    int rc = pthread_create(&node_worker_ctx->thread_worker, NULL, thread_worker_func, gnb_worker);
++    if (rc != 0) {
++        GNB_LOG2(node_worker_ctx->gnb_core->log, GNB_LOG_ID_NODE_WORKER, "pthread_create failed: %d\n", rc);
++        return -1;
++    }
++    rc = pthread_detach(node_worker_ctx->thread_worker);
++    if (rc != 0) {
++        GNB_LOG2(node_worker_ctx->gnb_core->log, GNB_LOG_ID_NODE_WORKER, "pthread_detach failed: %d\n", rc);
++        return -1;
++    }
+     return 0;
+ }
+ 
+-
+-static int stop(gnb_worker_t *gnb_worker){
+-
++int stop(gnb_worker_t *gnb_worker){
+     node_worker_ctx_t *node_worker_ctx = gnb_worker->ctx;
+-
+     gnb_core_t *gnb_core = node_worker_ctx->gnb_core;
+ 
+-    gnb_worker_t *node_worker = gnb_core->node_worker;
+-
+-    node_worker->thread_worker_flag = 0;
++    gnb_worker->thread_worker_flag = 0;
+ 
++    // 等待最多 5s
++    int wait = 0;
++    while (gnb_worker->thread_worker_run_flag && wait++ < 5000) {
++        usleep(1000);
++    }
++    if (gnb_worker->thread_worker_run_flag) {
++        GNB_LOG2(gnb_core->log, GNB_LOG_ID_NODE_WORKER, "node worker thread did not exit\n");
++    }
+     return 0;
+ }
+ 
+diff --git a/src/gnb_pf.c b/src/gnb_pf.c
+index 2c91bc8..32458c2 100755
+--- a/src/gnb_pf.c
++++ b/src/gnb_pf.c
+@@ -513,7 +513,9 @@ void gnb_pf_tun(gnb_core_t *gnb_core, gnb_pf_core_t *pf_core, gnb_payload16_t *p
+             pf_ctx_st.unified_forwarding = 0;
+         }
+ 
+-        goto pf_tun_finish;
++        if (pf_ctx_st.unified_forwarding) {
++            goto pf_tun_finish;
++        }
+ 
+     }
+ 
+@@ -529,7 +531,9 @@ void gnb_pf_tun(gnb_core_t *gnb_core, gnb_pf_core_t *pf_core, gnb_payload16_t *p
+             pf_ctx_st.unified_forwarding = 0;
+         }
+ 
+-        goto pf_tun_finish;
++        if (pf_ctx_st.unified_forwarding) {
++            goto pf_tun_finish;
++        }
+ 
+     }
+ 
+@@ -545,7 +549,9 @@ void gnb_pf_tun(gnb_core_t *gnb_core, gnb_pf_core_t *pf_core, gnb_payload16_t *p
+             pf_ctx_st.unified_forwarding = 0;
+         }
+ 
+-        goto pf_tun_finish;
++        if (pf_ctx_st.unified_forwarding) {
++            goto pf_tun_finish;
++        }
+ 
+     }
+ 
+diff --git a/src/gnb_pf_worker.c b/src/gnb_pf_worker.c
+index 269e3ad..7cc30fe 100755
+--- a/src/gnb_pf_worker.c
++++ b/src/gnb_pf_worker.c
+@@ -191,6 +191,9 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+         pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
+         *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
++        if (pf->pf_init) {
++            pf->pf_init(gnb_core, pf);
++        }
+     }
+ 
+     find_pf = gnb_find_pf_mod_by_name(gnb_core->conf->pf_route);
+@@ -203,6 +206,9 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+     pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
+     *pf = *find_pf;
+     gnb_pf_install(pf_core->pf_install_array, pf);
++    if (pf->pf_init) {
++        pf->pf_init(gnb_core, pf);
++    }
+ 
+     if ( 0 != gnb_core->conf->zip_level ) {
+         find_pf = gnb_find_pf_mod_by_name("gnb_pf_zip");
+@@ -210,6 +216,9 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+         *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);        
+     }
++    if (pf->pf_init) {
++        pf->pf_init(gnb_core, pf);
++    }
+ 
+     if ( !(GNB_PF_BITS_CRYPTO_XOR & gnb_core->conf->pf_bits) && !(GNB_PF_BITS_CRYPTO_ARC4 & gnb_core->conf->pf_bits) ) {
+         goto skip_crypto;
+@@ -220,6 +229,9 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+         pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
+         *pf = *find_pf;
+         gnb_pf_install(pf_worker_ctx->pf_core->pf_install_array, pf);
++        if (pf->pf_init) {
++            pf->pf_init(gnb_core, pf);
++        }
+     }
+ 
+     if ( gnb_core->conf->pf_bits & GNB_PF_BITS_CRYPTO_ARC4 ) {
+@@ -227,14 +239,14 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+         pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
+         *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
++        if (pf->pf_init) {
++            pf->pf_init(gnb_core, pf);
++        }
+     }
+ 
+ skip_crypto:
+ 
+-    gnb_pf_init(gnb_core, pf_core->pf_install_array);
+-
+     gnb_pf_core_conf(gnb_core, pf_core);
+-    gnb_pf_init(gnb_core, pf_core->pf_install_array);
+     gnb_pf_conf(gnb_core, pf_core->pf_install_array);
+ 
+     p = gnb_worker->name;
+diff --git a/src/gnb_primary_worker.c b/src/gnb_primary_worker.c
+index dc47894..c4337bc 100755
+--- a/src/gnb_primary_worker.c
++++ b/src/gnb_primary_worker.c
+@@ -1012,25 +1012,31 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+ 
+     gnb_pf_core_t *pf_core = primary_worker_ctx->pf_core;
+ 
++    gnb_pf_t *find_pf;
+     gnb_pf_t *pf;
+ 
+     if ( 1==gnb_core->conf->if_dump ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_dump");
+-        gnb_pf_install(primary_worker_ctx->pf_core->pf_install_array, pf);
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_dump");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
++        gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+-    pf = gnb_find_pf_mod_by_name(gnb_core->conf->pf_route);
++    find_pf = gnb_find_pf_mod_by_name(gnb_core->conf->pf_route);
+ 
+-    if ( NULL == pf ) {
++    if ( NULL == find_pf ) {
+         GNB_ERROR1(gnb_core->log, GNB_LOG_ID_CORE, "pf_route '%s' not exist\n", gnb_core->conf->pf_route);
+         exit(1);
+     }
+-
++    pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++    *pf = *find_pf;
+     gnb_pf_install(pf_core->pf_install_array, pf);
+ 
+     if ( 0 != gnb_core->conf->zip_level ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_zip");
+-        gnb_pf_install(pf_core->pf_install_array, pf);        
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_zip");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
++        gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+     if ( !(GNB_PF_BITS_CRYPTO_XOR & gnb_core->conf->pf_bits) && !(GNB_PF_BITS_CRYPTO_ARC4 & gnb_core->conf->pf_bits) ) {
+@@ -1038,19 +1044,30 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+     }
+ 
+     if ( gnb_core->conf->pf_bits & GNB_PF_BITS_CRYPTO_XOR ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_xor");
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_xor");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+     if ( gnb_core->conf->pf_bits & GNB_PF_BITS_CRYPTO_ARC4 ) {
+-        pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_arc4");
++        find_pf = gnb_find_pf_mod_by_name("gnb_pf_crypto_arc4");
++        pf = (gnb_pf_t *)gnb_heap_alloc(gnb_core->heap, sizeof(gnb_pf_t));
++        *pf = *find_pf;
+         gnb_pf_install(pf_core->pf_install_array, pf);
+     }
+ 
+ skip_crypto:
+ 
++    // 为所有新创建的过滤器实例调用初始化函数
++    int i;
++    for (i = 0; i < pf_core->pf_install_array->num; i++) {
++        if (pf_core->pf_install_array->pf[i]->pf_init) {
++            pf_core->pf_install_array->pf[i]->pf_init(gnb_core, pf_core->pf_install_array->pf[i]);
++        }
++    }
++
+     gnb_pf_core_conf(gnb_core, pf_core);
+-    gnb_pf_init(gnb_core, pf_core->pf_install_array);
+     gnb_pf_conf(gnb_core, pf_core->pf_install_array);
+ 
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_MAIN_WORKER, "%s init finish\n", gnb_worker->name);
+diff --git a/src/gnb_secure_index_service_worker.c b/src/gnb_secure_index_service_worker.c
+index 3e2a9f6..a5460f2 100755
+--- a/src/gnb_secure_index_service_worker.c
++++ b/src/gnb_secure_index_service_worker.c
+@@ -158,9 +158,11 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+ 
+     }
+ 
++    // 确保无论是新条目还是旧条目，UUID都被更新
+     key_address->uuid64 = gnb_ntohll(post_addr_frame->data.src_uuid64);
+ 
+-    gnb_address_t *address = alloca(sizeof(gnb_address_t));
++    gnb_address_t address_st;
++    gnb_address_t *address = &address_st;
+     address->ts_sec = index_service_worker_ctx->now_time_sec;
+ 
+     if ( AF_INET6 == sockaddress->addr_type ) {
+diff --git a/src/gnb_secure_index_worker.c b/src/gnb_secure_index_worker.c
+index 2c3a1ec..c5774db 100755
+--- a/src/gnb_secure_index_worker.c
++++ b/src/gnb_secure_index_worker.c
+@@ -96,16 +96,19 @@ static void send_post_addr_frame(gnb_worker_t *gnb_index_worker){
+ 
+     post_addr_frame->node_uuid64 = post_addr_frame->data.src_uuid64;
+ 
+-    memcpy(index_worker_ctx->payload_buffer, (const unsigned char *)&post_addr_frame->data, sizeof(struct post_addr_frame_data));
++    // Prepare a temporary payload in payload_buffer
++    gnb_payload16_t *tmp_payload = (gnb_payload16_t *)index_worker_ctx->payload_buffer;
++    tmp_payload->type = index_worker_ctx->index_frame_payload->type;
++    tmp_payload->sub_type = index_worker_ctx->index_frame_payload->sub_type;
++    gnb_payload16_set_data_len(tmp_payload, sizeof(post_addr_frame_t));
++    post_addr_frame_t *tmp_post_frame = (post_addr_frame_t *)tmp_payload->data;
+ 
+     for ( i=0; i<gnb_core->index_node_ring.num; i++ ) {
+ 
+-printf( "SSSSSSS node=%llu [%s]\n", gnb_core->index_node_ring.nodes[i]->uuid64, GNB_HEX1_BYTE32(gnb_core->index_node_ring.nodes[i]->crypto_key));
+-
+-
+-        xor_crypto_copy(gnb_core->index_node_ring.nodes[i]->crypto_key, (unsigned char *)&post_addr_frame->data, index_worker_ctx->payload_buffer, sizeof(struct post_addr_frame_data));
+-        ed25519_sign(post_addr_frame->src_sign, (const unsigned char *)&post_addr_frame->data, sizeof(struct post_addr_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
+-        gnb_send_to_node(gnb_core, gnb_core->index_node_ring.nodes[i], index_worker_ctx->index_frame_payload, GNB_ADDR_TYPE_IPV6|GNB_ADDR_TYPE_IPV4);
++        // Encrypt the original plaintext data into the temporary frame's data section
++        xor_crypto_copy(gnb_core->index_node_ring.nodes[i]->crypto_key, (unsigned char *)&tmp_post_frame->data, (unsigned char *)&post_addr_frame->data, sizeof(struct post_addr_frame_data));
++        ed25519_sign(tmp_post_frame->src_sign, (const unsigned char *)&tmp_post_frame->data, sizeof(struct post_addr_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
++        gnb_send_to_node(gnb_core, gnb_core->index_node_ring.nodes[i], tmp_payload, GNB_ADDR_TYPE_IPV6|GNB_ADDR_TYPE_IPV4);
+     }
+ 
+     index_worker_ctx->last_post_addr_ts_sec = index_worker_ctx->now_time_sec;
+@@ -164,12 +167,18 @@ static void send_request_addr_frame(gnb_worker_t *gnb_index_worker, gnb_node_t *
+ 
+     } else {
+ 
+-        memcpy(index_worker_ctx->payload_buffer, (const unsigned char *)&request_addr_frame->data, sizeof(struct request_addr_frame_data));
++        // Prepare a temporary payload in payload_buffer
++        gnb_payload16_t *tmp_payload = (gnb_payload16_t *)index_worker_ctx->payload_buffer;
++        tmp_payload->type = index_worker_ctx->index_frame_payload->type;
++        tmp_payload->sub_type = index_worker_ctx->index_frame_payload->sub_type;
++        gnb_payload16_set_data_len(tmp_payload, sizeof(request_addr_frame_t));
++        request_addr_frame_t *tmp_req_frame = (request_addr_frame_t *)tmp_payload->data;
+ 
+         for ( i=0; i<gnb_core->index_node_ring.num; i++ ) {
+-            xor_crypto_copy(gnb_core->index_node_ring.nodes[i]->crypto_key, (unsigned char *)&request_addr_frame->data, index_worker_ctx->payload_buffer, sizeof(struct request_addr_frame_data));            
+-            ed25519_sign(request_addr_frame->src_sign, (const unsigned char *)&request_addr_frame->data, sizeof(struct request_addr_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
+-            gnb_send_to_node(gnb_core, gnb_core->index_node_ring.nodes[i], index_worker_ctx->index_frame_payload, GNB_ADDR_TYPE_IPV6|GNB_ADDR_TYPE_IPV4);
++            // Encrypt the original plaintext data into the temporary frame's data section
++            xor_crypto_copy(gnb_core->index_node_ring.nodes[i]->crypto_key, (unsigned char *)&tmp_req_frame->data, (unsigned char *)&request_addr_frame->data, sizeof(struct request_addr_frame_data));
++            ed25519_sign(tmp_req_frame->src_sign, (const unsigned char *)&tmp_req_frame->data, sizeof(struct request_addr_frame_data), gnb_core->ed25519_public_key, gnb_core->ed25519_private_key);
++            gnb_send_to_node(gnb_core, gnb_core->index_node_ring.nodes[i], tmp_payload, GNB_ADDR_TYPE_IPV6|GNB_ADDR_TYPE_IPV4);
+         }
+ 
+     }
+@@ -679,7 +688,7 @@ static void handle_detect_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t
+     }
+ 
+     if ( !ed25519_verify(detect_addr_frame->src_sign, (const unsigned char *)&detect_addr_frame->data, sizeof(struct detect_addr_frame_data), src_node->public_key) ) {
+-        GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "111111 handle_detect_addr_frame error invalid signature src=%llu %s\n", node_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
++        GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "handle_detect_addr_frame error invalid signature src=%llu %s\n", node_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
+         return;
+     }
+ 
+@@ -916,6 +925,8 @@ static void init(gnb_worker_t *gnb_worker, void *ctx){
+     gnb_worker->ring_buffer_out = NULL;
+     gnb_worker->ctx = index_worker_ctx;
+ 
++    gnb_worker->send_request_addr_frame_func = send_request_addr_frame;
++
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "%s in ring buffer size = %d\n", gnb_worker->name, gnb_core->conf->index_woker_queue_length);
+     GNB_LOG1(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "%s init finish\n", gnb_worker->name);
+ 
+diff --git a/src/gnb_unified_forwarding.c b/src/gnb_unified_forwarding.c
+index 3a5b6e7..90a2729 100755
+--- a/src/gnb_unified_forwarding.c
++++ b/src/gnb_unified_forwarding.c
+@@ -46,17 +46,20 @@ void gnb_setup_unified_forwarding_nodeid(gnb_core_t *gnb_core, gnb_node_t *dst_n
+ 
+     int select_idx = 0;
+ 
+-    if ( 0 != dst_node->unified_forwarding_nodeid && (gnb_core->now_time_sec - dst_node->unified_forwarding_node_ts_sec) > GNB_UNIFIED_FORWARDING_NODE_EXPIRED_SEC ) {
++    // 如果已缓存的转发节点ID有效且未过期，则直接使用，无需重新选择
++    if ( 0 != dst_node->unified_forwarding_nodeid && (gnb_core->now_time_sec - dst_node->unified_forwarding_node_ts_sec) < GNB_UNIFIED_FORWARDING_NODE_EXPIRED_SEC ) {
+         return;
+     }
+ 
+     for ( i=1; i<GNB_UNIFIED_FORWARDING_NODE_ARRAY_SIZE; i++ ) {
+ 
++        // 跳过已过期的条目
+         if ( (gnb_core->now_time_sec - dst_node->unified_forwarding_node_array[i].last_ts_sec) > GNB_UNIFIED_FORWARDING_NODE_ARRAY_EXPIRED_SEC ) {
+             continue;
+         }
+ 
+-        if ( dst_node->unified_forwarding_node_array[select_idx].last_ts_sec > dst_node->unified_forwarding_node_array[i].last_ts_sec ) {
++        // 选择时间戳最大（即最新）的节点
++        if ( dst_node->unified_forwarding_node_array[i].last_ts_sec > dst_node->unified_forwarding_node_array[select_idx].last_ts_sec ) {
+             select_idx = i;
+         }
+ 
+@@ -188,6 +191,11 @@ int gnb_unified_forwarding_with_multi_path_tun(gnb_core_t *gnb_core, gnb_pf_ctx_
+             continue;
+         }
+ 
++        // 避免重复发送给目标节点
++        if (dst_node->unified_forwarding_node_array[i].uuid64 == dst_node->uuid64) {
++            continue;
++        }
++
+         dst_node->unified_forwarding_nodeid = dst_node->unified_forwarding_node_array[i].uuid64;
+         unified_forwarding_node = GNB_HASH32_UINT64_GET_PTR(gnb_core->uuid_node_map, dst_node->unified_forwarding_nodeid);
+ 
+diff --git a/src/gnb_worker_type.h b/src/gnb_worker_type.h
+index 1cbe99f..40a1ef9 100755
+--- a/src/gnb_worker_type.h
++++ b/src/gnb_worker_type.h
+@@ -38,6 +38,8 @@ typedef int(*gnb_worker_notify_func_t)(gnb_worker_t *gnb_worker);
+ 
+ typedef int(*gnb_worker_notify_func_t)(gnb_worker_t *gnb_worker);
+ 
++typedef void(*gnb_worker_send_request_addr_frame_func_t)(gnb_worker_t *gnb_index_worker, gnb_node_t *node);
++
+ typedef struct _gnb_worker_t {
+ 
+ 	char *name;
+@@ -63,6 +65,8 @@ typedef struct _gnb_worker_t {
+ 
+ 	void *ctx;
+ 
++	gnb_worker_send_request_addr_frame_func_t send_request_addr_frame_func;
++
+ }gnb_worker_t;
+ 
+ 
+@@ -75,5 +79,3 @@ typedef struct _gnb_worker_ring_t {
+ }gnb_worker_ring_t;
+ 
+ #endif
+-
+-
+-- 
+2.37.1 (Apple Git-137.1)
+

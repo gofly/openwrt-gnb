@@ -1,0 +1,95 @@
+From 14b27bd7ec91539dac2d753127aea5dcc19d37cf Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Mon, 29 Sep 2025 16:58:25 +0800
+Subject: [PATCH 3/9] fix reading config from config file
+
+---
+ src/gnb_argv.c      | 21 ++++-----------------
+ src/gnb_conf_file.c | 25 +++++++++++++++++++++++++
+ 2 files changed, 29 insertions(+), 17 deletions(-)
+
+diff --git a/src/gnb_argv.c b/src/gnb_argv.c
+index f6c8aa9..d82b1f4 100755
+--- a/src/gnb_argv.c
++++ b/src/gnb_argv.c
+@@ -1014,21 +1014,7 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+ 
+     }
+ 
+-    if ( 0 == conf->lite_mode && 0==conf->public_index_service ) {
+-
+-        if ( '\0' == conf->map_file[0] ) {
+-            snprintf(conf->map_file, PATH_MAX+NAME_MAX, "%s/%s", conf->conf_dir, "gnb.map");
+-        }
+-
+-        if ( '\0' == conf->pid_file[0] ) {
+-            snprintf(conf->pid_file, PATH_MAX+NAME_MAX,"%s/%s", conf->conf_dir, "gnb.pid");
+-        }
+-
+-        if ( '\0' == conf->node_cache_file[0] ) {
+-            snprintf(conf->node_cache_file, PATH_MAX+NAME_MAX,"%s/%s", conf->conf_dir, "node_cache.dump");
+-        }
+-
+-    } else {
++    if ( 1 == conf->lite_mode || 1 == conf->public_index_service ) {
+ 
+         conf->conf_dir[0] = '\0';
+ 
+@@ -1046,8 +1032,9 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]){
+ 
+     }
+ 
+-    if ( NULL != ctl_block_file ) {
+-        snprintf(conf->map_file,        PATH_MAX+NAME_MAX, "%s",       ctl_block_file);
++    // 命令行 -b/--ctl-block 是 map_file 的别名，只有在 map_file 未被设置时才生效
++    if ( NULL != ctl_block_file && '\0' == conf->map_file[0] ) {
++        snprintf(conf->map_file, PATH_MAX+NAME_MAX, "%s", ctl_block_file);
+     }
+ 
+     char  resolved_path[PATH_MAX+NAME_MAX];
+diff --git a/src/gnb_conf_file.c b/src/gnb_conf_file.c
+index ca0a7b3..ed7c67e 100755
+--- a/src/gnb_conf_file.c
++++ b/src/gnb_conf_file.c
+@@ -1045,6 +1045,17 @@ void local_node_file_config(gnb_conf_t *conf){
+ 
+         }
+ 
++        if ( !strncmp(line_buffer, "node-cache-file", sizeof("node-cache-file")-1) ) {
++
++            num = sscanf(line_buffer, "%32[^ ] %512s", field, conf->node_cache_file);
++
++            if ( 2 != num ) {
++                printf("config %s error in [%s]\n", "node-cache-file", node_conf_file);
++                exit(1);
++            }
++
++        }
++
+ 
+         if ( !strncmp(line_buffer, "pf-route", sizeof("pf-route")-1) ) {
+ 
+@@ -1184,6 +1195,20 @@ void local_node_file_config(gnb_conf_t *conf){
+ 
+     fclose(file);    
+ 
++    // 如果以下文件路径既没有通过命令行设置，也没有在 node.conf 中配置，则设置默认值
++    // 优先级: 命令行 > node.conf > 默认值
++    if ( '\0' == conf->map_file[0] ) {
++        snprintf(conf->map_file, PATH_MAX+NAME_MAX, "%s/%s", conf->conf_dir, "gnb.map");
++    }
++
++    if ( '\0' == conf->pid_file[0] ) {
++        snprintf(conf->pid_file, PATH_MAX+NAME_MAX,"%s/%s", conf->conf_dir, "gnb.pid");
++    }
++
++    if ( '\0' == conf->node_cache_file[0] ) {
++        snprintf(conf->node_cache_file, PATH_MAX+NAME_MAX,"%s/%s", conf->conf_dir, "node_cache.dump");
++    }
++
+     if ( 1 == conf->multi_socket ) {
+         conf->udp6_socket_num = 1;
+         conf->udp4_socket_num = 5;
+-- 
+2.37.1 (Apple Git-137.1)
+

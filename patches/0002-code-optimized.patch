@@ -1,0 +1,789 @@
+From c228d0d7b5e8a4d47e2e36e1a2995bb0f94b869f Mon Sep 17 00:00:00 2001
+From: zhenglixin <lixin.zhenglx@gmail.com>
+Date: Sat, 27 Sep 2025 13:31:21 +0800
+Subject: [PATCH 2/9] code optimized
+
+---
+ src/es/gnb_es_broadcast_address.c      |   8 +-
+ src/gnb_argv.c                         |   1 +
+ src/gnb_index_worker.c                 |  12 +-
+ src/gnb_log.h                          | 202 ++++---------------------
+ src/gnb_lru32.c                        |  10 +-
+ src/gnb_lru32.h                        |   5 +-
+ src/gnb_secure_index_service_worker.c  |  19 +--
+ src/gnb_secure_index_worker.c          |  10 +-
+ src/packet_filter/gnb_pf_crypto_arc4.c |  38 +++--
+ src/packet_filter/gnb_pf_crypto_xor.c  | 109 +++++--------
+ src/packet_filter/gnb_pf_dump.c        |  30 +---
+ 11 files changed, 134 insertions(+), 310 deletions(-)
+
+diff --git a/src/es/gnb_es_broadcast_address.c b/src/es/gnb_es_broadcast_address.c
+index 471c89e..5a243ee 100755
+--- a/src/es/gnb_es_broadcast_address.c
++++ b/src/es/gnb_es_broadcast_address.c
+@@ -46,23 +46,19 @@
+ 
+ static void send_address_to_node(gnb_es_ctx *es_ctx, gnb_node_t *src_node, gnb_node_t *dst_node){
+ 
+-    unsigned char payload_buffer[ PUSH_ADDR_FRAME_PAYLOAD_SIZE ];
++    static unsigned char payload_buffer[ PUSH_ADDR_FRAME_PAYLOAD_SIZE ];
+     gnb_payload16_t *payload;
+     gnb_ctl_block_t  *ctl_block;
+     gnb_log_ctx_t *log;
+ 
+     ctl_block = es_ctx->ctl_block;
+-
+     log = es_ctx->log;
+ 
+     payload = (gnb_payload16_t *)payload_buffer;
+-    memset(payload_buffer, 0, PUSH_ADDR_FRAME_PAYLOAD_SIZE);
+ 
+     payload->type = GNB_PAYLOAD_TYPE_INDEX;
+     payload->sub_type = PAYLOAD_SUB_TYPE_PUSH_ADDR;
+ 
+-    gnb_payload16_set_data_len( payload,  sizeof(push_addr_frame_t) );
+-
+     push_addr_frame_t *push_addr_frame = (push_addr_frame_t *)payload->data;
+ 
+     push_addr_frame->data.node_uuid64 = gnb_htonll(src_node->uuid64);
+@@ -76,6 +72,8 @@ static void send_address_to_node(gnb_es_ctx *es_ctx, gnb_node_t *src_node, gnb_n
+     memcpy(&push_addr_frame->data.addr4_a, &src_node->udp_sockaddr4.sin_addr.s_addr, 4);
+     push_addr_frame->data.port4_a = src_node->udp_sockaddr4.sin_port;
+ 
++    gnb_payload16_set_data_len( payload,  sizeof(push_addr_frame_t) );
++
+     snprintf(push_addr_frame->data.text,32,"%llu>%llu>%llu", ctl_block->core_zone->local_uuid, src_node->uuid64, dst_node->uuid64);
+ 
+     struct sockaddr_in udp_sockaddr4;
+diff --git a/src/gnb_argv.c b/src/gnb_argv.c
+index c688cd7..f6c8aa9 100755
+--- a/src/gnb_argv.c
++++ b/src/gnb_argv.c
+@@ -1128,6 +1128,7 @@ static void show_useage(int argc,char *argv[]){
+ 
+ #if defined(__linux__)
+     printf("      --systemd                     systemd daemon\n");
++    printf("      --fwmark                      outbound fwmark\n");
+ #endif
+     
+     printf("      --node-worker-queue           node  worker queue length\n");
+diff --git a/src/gnb_index_worker.c b/src/gnb_index_worker.c
+index 83865b0..dccca7a 100755
+--- a/src/gnb_index_worker.c
++++ b/src/gnb_index_worker.c
+@@ -355,11 +355,13 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+         return;
+     }
+ 
+-    gnb_address_list_t *dst_address6_list = alloca( sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM );
++    unsigned char dst_address6_list_block[sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM];
++    gnb_address_list_t *dst_address6_list = (gnb_address_list_t *)dst_address6_list_block;
+     memset(dst_address6_list, 0, sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM);
+     dst_address6_list->size = GNB_KEY_ADDRESS_NUM;
+ 
+-    gnb_address_list_t *dst_address4_list = alloca( sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM );
++    unsigned char dst_address4_list_block[sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM];
++    gnb_address_list_t *dst_address4_list = (gnb_address_list_t *)dst_address4_list_block;
+     memset(dst_address4_list, 0, sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM);
+     dst_address4_list->size = GNB_KEY_ADDRESS_NUM;
+ 
+@@ -524,7 +526,8 @@ static void handle_echo_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+         return;
+     }
+ 
+-    gnb_address_t *address = alloca(sizeof(gnb_address_t));
++    gnb_address_t address_st;
++    gnb_address_t *address = &address_st;
+ 
+     if ( AF_INET6 == sockaddress->addr_type ) {
+         gnb_set_address6(address, &sockaddress->addr.in6);
+@@ -607,7 +610,8 @@ static void handle_detect_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t
+         return;
+     }
+ 
+-    gnb_address_t *address = alloca(sizeof(gnb_address_t));
++    gnb_address_t address_st;
++    gnb_address_t *address = &address_st;
+ 
+     memset(address,0,sizeof(gnb_address_t));
+ 
+diff --git a/src/gnb_log.h b/src/gnb_log.h
+index b5de0df..459b574 100755
+--- a/src/gnb_log.h
++++ b/src/gnb_log.h
+@@ -61,179 +61,35 @@ int gnb_log_udp_set_addr6(gnb_log_ctx_t *log, char *ip, uint16_t port6);
+ int gnb_log_udp_set_addr4_string(gnb_log_ctx_t *log, char *sockaddress4_string);
+ 
+ 
+-#define GNB_LOG1(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
+-				log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
+-		){ \
+-			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-#define GNB_LOG2(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
+-		){ \
+-			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-#define GNB_LOG3(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
+-		){ \
+-			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-#define GNB_LOG4(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
+-		){ \
+-			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-#define GNB_LOG5(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
+-		){ \
+-			gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-#define GNB_DEBUG1(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_DEBUG2(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_DEBUG3(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type && \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_DEBUG4(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_DEBUG5(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_ERROR1(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL1 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL1) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_ERROR2(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL2 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL2) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_ERROR3(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL3 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL3) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_ERROR4(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL4 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL4) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
+-
+-
+-#define GNB_ERROR5(log,log_id,format,...) \
+-	do{ \
+-		if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&  \
+-			(log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].file_level >= GNB_LOG_LEVEL5 || \
+-			log->config_table[log_id].udp_level >= GNB_LOG_LEVEL5) \
+-		){ \
+-			gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+-		} \
+-	} while(0);
++/* 统一的日志宏，减少重复代码 */
++#define GNB_LOG_INTERNAL(log, log_id, log_type, level, format, ...)                              \
++    do {                                                                                         \
++        if (log != NULL && log->output_type != GNB_LOG_OUTPUT_NONE &&                            \
++            (log->config_table[log_id].console_level >= level ||                                 \
++             log->config_table[log_id].file_level    >= level ||                                 \
++             log->config_table[log_id].udp_level     >= level)) {                                \
++            gnb_logf(log, log_type, log_id, level, format, ##__VA_ARGS__);                       \
++        }                                                                                        \
++    } while(0)
++
++#define GNB_LOG1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
++#define GNB_LOG2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
++#define GNB_LOG3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
++#define GNB_LOG4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
++#define GNB_LOG5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
++
++#define GNB_DEBUG1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
++#define GNB_DEBUG2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
++#define GNB_DEBUG3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
++#define GNB_DEBUG4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
++#define GNB_DEBUG5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
++
++#define GNB_ERROR1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
++#define GNB_ERROR2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
++#define GNB_ERROR3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
++#define GNB_ERROR4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
++#define GNB_ERROR5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
++
+ 
+ 
+ #endif
+diff --git a/src/gnb_lru32.c b/src/gnb_lru32.c
+index 5d4a853..3c2911c 100755
+--- a/src/gnb_lru32.c
++++ b/src/gnb_lru32.c
+@@ -198,19 +198,19 @@ void gnb_lru32_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, voi
+ }
+ 
+ 
+-void gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, void *data){
++gnb_lru32_node_t* gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, void *data){
+ 
+     gnb_lru32_node_t *lru_node;
+ 
+     if ( 0 == lru->block_size ) {
+-        return;
++        return NULL;
+     }
+ 
+     lru_node = gnb_lru32_get(lru, key, key_len);
+ 
+     if ( NULL != lru_node ) {
+         memcpy(lru_node->udata,data,lru->block_size);
+-        return;
++        return lru_node;
+     }
+     
+     void *pop_udata = NULL;
+@@ -222,7 +222,7 @@ void gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_le
+     lru_node = gnb_lru32_node_fixed_pool_pop(lru);
+     
+     if ( NULL == lru_node ) {
+-        return;
++        return NULL;
+     }
+ 
+     memcpy(lru_node->udata,data,lru->block_size);
+@@ -236,7 +236,7 @@ void gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_le
+     
+     lru->size++;
+ 
+-    return;
++    return lru_node;
+     
+ }
+ 
+diff --git a/src/gnb_lru32.h b/src/gnb_lru32.h
+index 3ea210d..5643ecf 100755
+--- a/src/gnb_lru32.h
++++ b/src/gnb_lru32.h
+@@ -75,9 +75,12 @@ void gnb_lru32_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, voi
+ //传入的data会拷贝到lru中一块内存里，相同的key存入数据会覆盖之前的数据，
+ //每个key对应的内存块是预先申请好的，大小一致的，在调用gnb_lru32_creates时通过block_size设定
+ //用这个函数保存小块数据到lru是效率最高的，不需要频繁申请/释放内存
+-void gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, void *data);
++gnb_lru32_node_t* gnb_lru32_fixed_store(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len, void *data);
+ #define GNB_LRU32_FIXED_STORE(lru,key,key_len,data) gnb_lru32_fixed_store(lru,(unsigned char *)key,(uint32_t)key_len, data)
+ 
++#define GNB_LRU32_FIXED_STORE_AND_GET(lru,key,key_len,data) \
++    GNB_LRU32_VALUE(gnb_lru32_fixed_store(lru,(unsigned char *)key,(uint32_t)key_len, data))
++
+ //这个函数不会把命中的节点移到链表首部，需要调用 gnb_lru32_movetohead 实现
+ gnb_lru32_node_t* gnb_lru32_hash_get(gnb_lru32_t *lru, unsigned char *key, uint32_t key_len);
+ #define GNB_LRU32_HASH_GET(lru,key,key_len)  gnb_lru32_hash_get(lru,key,(uint32_t)key_len);
+diff --git a/src/gnb_secure_index_service_worker.c b/src/gnb_secure_index_service_worker.c
+index a5460f2..f66395b 100755
+--- a/src/gnb_secure_index_service_worker.c
++++ b/src/gnb_secure_index_service_worker.c
+@@ -113,10 +113,10 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+     src_uuid64 = gnb_ntohll(post_addr_frame->node_uuid64);
+     src_node = GNB_HASH32_UINT64_GET_PTR(gnb_core->uuid_node_map, src_uuid64);
+ 
+-    if ( NULL==src_node ) {
++    if ( src_node == NULL ) {
+         GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_SERVICE_WORKER, "handle_post_addr_frame error src node not found src=%llu %s\n", src_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
+         return;
+-    }        
++    }
+ 
+     if ( !ed25519_verify(post_addr_frame->src_sign, (const unsigned char *)&post_addr_frame->data, sizeof(struct post_addr_frame_data), src_node->public_key) ) {
+         GNB_LOG3(gnb_core->log, GNB_LOG_ID_INDEX_SERVICE_WORKER, "handle_post_addr_frame error invalid signature src=%llu %s\n", src_uuid64, GNB_SOCKETADDRSTR1(sockaddress));
+@@ -132,15 +132,10 @@ static void handle_post_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+     gnb_address_list_t *address6_list;
+     gnb_address_list_t *address4_list;
+ 
+-    if ( NULL == key_address ) {
+-
+-        key_address = (gnb_key_address_t *)alloca( sizeof(gnb_key_address_t) );
+-
+-        memset(key_address,0,sizeof(gnb_key_address_t));
++    if ( key_address == NULL ) {
+ 
+-        GNB_LRU32_FIXED_STORE(index_service_worker_ctx->lru, post_addr_frame->data.src_key512, 64, key_address);
+-
+-        key_address = GNB_LRU32_HASH_GET_VALUE(index_service_worker_ctx->lru, post_addr_frame->data.src_key512, 64);
++        gnb_key_address_t new_key_address = {0}; // Initialize with zeros
++        key_address = GNB_LRU32_FIXED_STORE_AND_GET(index_service_worker_ctx->lru, post_addr_frame->data.src_key512, 64, &new_key_address);
+ 
+         GNB_LOG4(gnb_core->log, GNB_LOG_ID_INDEX_SERVICE_WORKER, "HANDLE POST STORE src_uuid64[%llu] key[%s]\n", src_uuid64, GNB_HEX1_BYTE128(post_addr_frame->data.src_key512));
+ 
+@@ -452,8 +447,8 @@ static void handle_request_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t
+     gnb_address_list_t *address6_list = (gnb_address_list_t *)l_key_address->address6_list_block;
+     gnb_address_list_t *address4_list = (gnb_address_list_t *)l_key_address->address4_list_block;    
+ 
+-    gnb_address_t *address = alloca(sizeof(gnb_address_t));
+-
++    gnb_address_t address_st;
++    gnb_address_t *address = &address_st;
+     address->ts_sec = index_service_worker_ctx->now_time_sec;
+ 
+     if ( AF_INET6 == sockaddress->addr_type ) {
+diff --git a/src/gnb_secure_index_worker.c b/src/gnb_secure_index_worker.c
+index c5774db..a1f8ebd 100755
+--- a/src/gnb_secure_index_worker.c
++++ b/src/gnb_secure_index_worker.c
+@@ -394,6 +394,7 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+ 
+     if ( NULL==index_node ) {
+         GNB_LOG2(gnb_core->log, GNB_LOG_ID_INDEX_WORKER, "handle_push_addr_frame error index nodeid=%llu not found %s\n", index_nodeid, GNB_SOCKETADDRSTR1(node_addr));
++        return;
+     }
+ 
+     if ( !ed25519_verify(push_addr_frame->src_sign, (void *)&push_addr_frame->data, sizeof(struct push_addr_frame_data), index_node->public_key) ) {
+@@ -436,11 +437,13 @@ static void handle_push_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+         return;
+     }
+ 
+-    gnb_address_list_t *dst_address6_list = alloca( sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM );
++    unsigned char dst_address6_list_block[sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM];
++    gnb_address_list_t *dst_address6_list = (gnb_address_list_t *)dst_address6_list_block;
+     memset(dst_address6_list, 0, sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM);
+     dst_address6_list->size = GNB_KEY_ADDRESS_NUM;
+ 
+-    gnb_address_list_t *dst_address4_list = alloca( sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM );
++    unsigned char dst_address4_list_block[sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM];
++    gnb_address_list_t *dst_address4_list = (gnb_address_list_t *)dst_address4_list_block;
+     memset(dst_address4_list, 0, sizeof(gnb_address_list_t) + sizeof(gnb_address_t)*GNB_KEY_ADDRESS_NUM);
+     dst_address4_list->size = GNB_KEY_ADDRESS_NUM;
+ 
+@@ -625,7 +628,8 @@ static void handle_echo_addr_frame(gnb_core_t *gnb_core, gnb_worker_in_data_t *i
+         return;
+     }
+ 
+-    gnb_address_t *address = alloca(sizeof(gnb_address_t));
++    gnb_address_t address_st;
++    gnb_address_t *address = &address_st;
+ 
+     if ( AF_INET6 == sockaddress->addr_type ) {
+         gnb_set_address6(address, &sockaddress->addr.in6);
+diff --git a/src/packet_filter/gnb_pf_crypto_arc4.c b/src/packet_filter/gnb_pf_crypto_arc4.c
+index 90dd83b..d2145aa 100755
+--- a/src/packet_filter/gnb_pf_crypto_arc4.c
++++ b/src/packet_filter/gnb_pf_crypto_arc4.c
+@@ -27,6 +27,10 @@ typedef struct _gnb_pf_private_ctx_t {
+     int save_time_seed_update_factor;
+     gnb_hash32_map_t *arc4_ctx_map;
+ 
++    // S-Box 池，避免频繁在栈上拷贝
++    struct arc4_sbox sbox_pool[16];
++    int sbox_pool_idx;
++
+ }gnb_pf_private_ctx_t;
+ 
+ gnb_pf_t gnb_pf_crypto_arc4;
+@@ -124,8 +128,6 @@ static int pf_tun_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_
+         init_arc4_keys(gnb_core,pf);
+     }
+ 
+-    struct arc4_sbox sbox;
+-
+     if ( NULL==pf_ctx->dst_node ) {
+         return GNB_PF_ERROR;
+     }
+@@ -137,9 +139,12 @@ static int pf_tun_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_
+         return GNB_PF_ERROR;
+     }
+ 
+-    sbox = *sbox_init;
++    // 从池中获取一个 sbox
++    ctx->sbox_pool_idx = (ctx->sbox_pool_idx + 1) & 15; // & 15 is faster than % 16
++    struct arc4_sbox *sbox = &ctx->sbox_pool[ctx->sbox_pool_idx];
++    *sbox = *sbox_init;
+ 
+-    arc4_crypt(&sbox, pf_ctx->ip_frame, pf_ctx->ip_frame_size);
++    arc4_crypt(sbox, pf_ctx->ip_frame, pf_ctx->ip_frame_size);
+ 
+     return pf_ctx->pf_status;
+ 
+@@ -167,9 +172,12 @@ static int pf_inet_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+             return GNB_PF_ERROR;
+         }
+ 
+-        struct arc4_sbox sbox = *sbox_init;
++        // 从池中获取一个 sbox
++        ctx->sbox_pool_idx = (ctx->sbox_pool_idx + 1) & 15;
++        struct arc4_sbox *sbox = &ctx->sbox_pool[ctx->sbox_pool_idx];
++        *sbox = *sbox_init;
+ 
+-        arc4_crypt(&sbox, pf_ctx->ip_frame, pf_ctx->ip_frame_size);
++        arc4_crypt(sbox, pf_ctx->ip_frame, pf_ctx->ip_frame_size);
+ 
+     }
+ 
+@@ -186,8 +194,6 @@ static int pf_chain_relay_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *p
+ 
+     gnb_pf_private_ctx_t *ctx = (gnb_pf_private_ctx_t *)pf->private_ctx;
+ 
+-    struct arc4_sbox sbox;
+-
+     if ( !(pf_ctx->fwd_payload->sub_type & GNB_PAYLOAD_SUB_TYPE_IPFRAME_RELAY) ) {
+         return pf_ctx->pf_status;
+     }
+@@ -210,9 +216,12 @@ static int pf_chain_relay_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *p
+             return GNB_PF_ERROR;
+         }
+ 
+-        sbox = *sbox_init;
++        // 从池中获取一个 sbox
++        ctx->sbox_pool_idx = (ctx->sbox_pool_idx + 1) & 15;
++        struct arc4_sbox *sbox = &ctx->sbox_pool[ctx->sbox_pool_idx];
++        *sbox = *sbox_init;
+ 
+-        arc4_crypt(&sbox, pf_ctx->fwd_payload->data, gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t));
++        arc4_crypt(sbox, pf_ctx->fwd_payload->data, gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t));
+ 
+     }
+ 
+@@ -230,8 +239,6 @@ finish:
+ static int pf_inet_frame_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+ 
+     gnb_pf_private_ctx_t *ctx = (gnb_pf_private_ctx_t *)pf->private_ctx;
+-
+-    struct arc4_sbox sbox;
+     
+     uint16_t payload_size;
+ 
+@@ -255,9 +262,12 @@ static int pf_inet_frame_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+         return GNB_PF_ERROR;
+     }
+ 
+-    sbox = *sbox_init;
++    // 从池中获取一个 sbox
++    ctx->sbox_pool_idx = (ctx->sbox_pool_idx + 1) & 15;
++    struct arc4_sbox *sbox = &ctx->sbox_pool[ctx->sbox_pool_idx];
++    *sbox = *sbox_init;
+ 
+-    arc4_crypt(&sbox, pf_ctx->fwd_payload->data, gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t));
++    arc4_crypt(sbox, pf_ctx->fwd_payload->data, gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t));
+ 
+ finish:
+ 
+diff --git a/src/packet_filter/gnb_pf_crypto_xor.c b/src/packet_filter/gnb_pf_crypto_xor.c
+index 0abe6a3..c306160 100755
+--- a/src/packet_filter/gnb_pf_crypto_xor.c
++++ b/src/packet_filter/gnb_pf_crypto_xor.c
+@@ -59,23 +59,19 @@ static int pf_tun_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_
+         return GNB_PF_ERROR;
+     }
+ 
++    uint64_t *p64 = (uint64_t *)pf_ctx->ip_frame;
++    uint64_t *key64 = (uint64_t *)pf_ctx->dst_node->crypto_key;
++    int n = pf_ctx->ip_frame_size / 8;
+     int i;
+-    int j = 0;
+ 
+-    unsigned char *p = (unsigned char *)pf_ctx->ip_frame;
+-
+-    for ( i=0; i<pf_ctx->ip_frame_size; i++ ) {
+-
+-        *p = *p ^ pf_ctx->dst_node->crypto_key[j];
+-
+-        p++;
+-
+-        j++;
+-
+-        if ( j >= 64 ) {
+-            j = 0;
+-        }
++    for (i = 0; i < n; i++) {
++        p64[i] ^= key64[i % 8];
++    }
+ 
++    // 处理剩余的字节
++    unsigned char *p8 = (unsigned char *)(p64 + n);
++    for (i = n * 8; i < pf_ctx->ip_frame_size; i++) {
++        *p8++ ^= pf_ctx->dst_node->crypto_key[i % 64];
+     }
+ 
+     return pf_ctx->pf_status;;
+@@ -95,10 +91,6 @@ static int pf_inet_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+ 
+     gnb_node_t *src_node;
+ 
+-    int i;
+-    int j = 0;
+-    unsigned char *p = (unsigned char *)pf_ctx->ip_frame;
+-
+     if ( GNB_PF_FWD_TUN==pf_ctx->pf_fwd ) {
+ 
+         src_node = pf_ctx->src_node;
+@@ -107,17 +99,17 @@ static int pf_inet_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+             return GNB_PF_ERROR;
+         }
+ 
+-        for ( i=0; i<pf_ctx->ip_frame_size; i++ ) {
+-
+-            *p = *p ^ src_node->crypto_key[j];
+-
+-            p++;
+-            j++;
+-
+-            if ( j >= 64 ) {
+-                j = 0;
+-            }
++        uint64_t *p64 = (uint64_t *)pf_ctx->ip_frame;
++        uint64_t *key64 = (uint64_t *)src_node->crypto_key;
++        int n = pf_ctx->ip_frame_size / 8;
++        int i;
+ 
++        for (i = 0; i < n; i++) {
++            p64[i] ^= key64[i % 8];
++        }
++        unsigned char *p8 = (unsigned char *)(p64 + n);
++        for (i = n * 8; i < pf_ctx->ip_frame_size; i++) {
++            *p8++ ^= src_node->crypto_key[i % 64];
+         }
+ 
+     }
+@@ -126,6 +118,23 @@ static int pf_inet_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+ 
+ }
+ 
++static inline void xor_crypt_relay_payload(unsigned char *data, int data_len, const unsigned char *key) {
++    uint64_t *p64 = (uint64_t *)data;
++    const uint64_t *key64 = (const uint64_t *)key;
++    int n = data_len / 8;
++    int i;
++
++    for (i = 0; i < n; i++) {
++        p64[i] ^= key64[i % 8];
++    }
++
++    // 处理剩余的字节
++    unsigned char *p8 = (unsigned char *)(p64 + n);
++    for (i = n * 8; i < data_len; i++) {
++        *p8++ ^= key[i % 64];
++    }
++}
++
+ 
+ /*
+ 只处理有 GNB_PAYLOAD_SUB_TYPE_IPFRAME_RELAY 标记的 payload
+@@ -136,12 +145,6 @@ static int pf_chain_relay_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *p
+     gnb_pf_private_ctx_t *ctx = (gnb_pf_private_ctx_t *)pf->private_ctx;
+     ctx->save_time_seed_update_factor = gnb_core->time_seed_update_factor;
+ 
+-    int i;
+-
+-    int j = 0;
+-
+-    unsigned char *p;
+-
+     if ( !(pf_ctx->fwd_payload->sub_type & GNB_PAYLOAD_SUB_TYPE_IPFRAME_RELAY) ) {
+         return pf_ctx->pf_status;
+     }
+@@ -153,21 +156,8 @@ static int pf_chain_relay_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *p
+             goto finish;
+         }
+ 
+-        p = (unsigned char *)pf_ctx->fwd_payload->data;
+-
+-        for ( i=0; i < (gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t)); i++ ) {
+-
+-            *p = *p ^ pf_ctx->fwd_node->crypto_key[j];
+-
+-            p++;
+-
+-            j++;
+-
+-            if ( j >= 64 ) {
+-                j = 0;
+-            }
+-
+-        }
++        int data_len = gnb_payload16_data_len(pf_ctx->fwd_payload) - sizeof(gnb_uuid_t);
++        xor_crypt_relay_payload(pf_ctx->fwd_payload->data, data_len, pf_ctx->fwd_node->crypto_key);
+ 
+         pf_ctx->pf_status = GNB_PF_NEXT;
+ 
+@@ -211,25 +201,8 @@ static int pf_inet_frame_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf
+         goto finish;
+     }
+ 
+-    int i;
+-    int j = 0;
+-
+-    unsigned char *p;
+-
+-    p = (unsigned char *)pf_ctx->fwd_payload->data;
+-
+-    for ( i=0; i < (gnb_payload16_data_len(pf_ctx->fwd_payload)-sizeof(gnb_uuid_t)); i++ ) {
+-        *p = *p ^ pf_ctx->src_fwd_node->crypto_key[j];
+-
+-        p++;
+-
+-        j++;
+-
+-        if ( j >= 64 ) {
+-            j = 0;
+-        }
+-
+-    }
++    int data_len = gnb_payload16_data_len(pf_ctx->fwd_payload) - sizeof(gnb_uuid_t);
++    xor_crypt_relay_payload(pf_ctx->fwd_payload->data, data_len, pf_ctx->src_fwd_node->crypto_key);
+ 
+     goto finish;
+ 
+diff --git a/src/packet_filter/gnb_pf_dump.c b/src/packet_filter/gnb_pf_dump.c
+index a468a86..5fb477f 100755
+--- a/src/packet_filter/gnb_pf_dump.c
++++ b/src/packet_filter/gnb_pf_dump.c
+@@ -109,26 +109,6 @@ static int pf_tun_frame_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_
+ }
+ 
+ 
+-static int pf_tun_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+-    return pf_ctx->pf_status;
+-}
+-
+-
+-static int pf_tun_fwd_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+-    return pf_ctx->pf_status;
+-}
+-
+-
+-static int pf_inet_frame_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+-    return pf_ctx->pf_status;
+-}
+-
+-
+-static int pf_inet_route_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+-    return pf_ctx->pf_status;
+-}
+-
+-
+ static int pf_inet_fwd_cb(gnb_core_t *gnb_core, gnb_pf_t *pf, gnb_pf_ctx_t *pf_ctx){
+ 
+     char src_ipv4_string[INET_ADDRSTRLEN];
+@@ -195,11 +175,11 @@ gnb_pf_t gnb_pf_dump = {
+     .private_ctx   = NULL,
+     .pf_init       = pf_init_cb,
+     .pf_conf       = pf_conf_cb,
+-    .pf_tun_frame  = pf_tun_frame_cb,
+-    .pf_tun_route  = pf_tun_route_cb,
+-    .pf_tun_fwd    = pf_tun_fwd_cb,
+-    .pf_inet_frame = pf_inet_frame_cb,
+-    .pf_inet_route = pf_inet_route_cb,
++    .pf_tun_frame  = pf_tun_frame_cb, // Dumps outgoing tun packets
++    .pf_tun_route  = NULL,
++    .pf_tun_fwd    = NULL,
++    .pf_inet_frame = NULL,
++    .pf_inet_route = NULL,
+     .pf_inet_fwd   = pf_inet_fwd_cb,
+     .pf_release    = pf_release_cb
+ };
+-- 
+2.37.1 (Apple Git-137.1)
+
