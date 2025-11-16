@@ -1,7 +1,7 @@
-From 8850217aac659b60e430116024e4e70614543f53 Mon Sep 17 00:00:00 2001
+From 503c56a0bc18ec691eb809db1686423bf6dfa108 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Mon, 29 Sep 2025 00:15:02 +0800
-Subject: [PATCH 10/10] integrate the exporter into the gnb process.
+Subject: [PATCH 10/12] integrate the exporter into the gnb process.
 
 ---
  Makefile.Darwin           |  14 +-
@@ -18,10 +18,10 @@ Subject: [PATCH 10/10] integrate the exporter into the gnb process.
  src/gnb_conf_file.c       |  11 ++
  src/gnb_conf_type.h       |   2 +
  src/gnb_core.c            |   4 +
- src/gnb_exporter_worker.c | 247 ++++++++++++++++++++++++++++++++
+ src/gnb_exporter_worker.c | 251 ++++++++++++++++++++++++++++++++
  src/gnb_primary_worker.c  |   2 +-
  src/gnb_worker.c          |   2 +
- 17 files changed, 330 insertions(+), 356 deletions(-)
+ 17 files changed, 334 insertions(+), 356 deletions(-)
  delete mode 100644 src/cli/gnb_exporter.c
  create mode 100644 src/gnb_exporter_worker.c
 
@@ -876,10 +876,10 @@ index febf4cb..3a64d2d 100755
  #ifdef __UNIX_LIKE_OS__
 diff --git a/src/gnb_exporter_worker.c b/src/gnb_exporter_worker.c
 new file mode 100644
-index 0000000..b395a61
+index 0000000..9a62d26
 --- /dev/null
 +++ b/src/gnb_exporter_worker.c
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,251 @@
 +/*
 +   Copyright (C) gnbdev
 +
@@ -984,19 +984,23 @@ index 0000000..b395a61
 +        if (ret < 0 || ret >= buffer_size - offset) break;
 +        offset += ret;
 +
-+        ret = snprintf(buffer + offset, buffer_size - offset,
-+            "gnb_node_addr4_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
-+            network, node->uuid64, node->addr4_ping_latency_usec / 1000
-+        );
-+        if (ret < 0 || ret >= buffer_size - offset) break;
-+        offset += ret;
++        if (GNB_NODE_STATUS_IPV4_PONG & node->udp_addr_status) {
++            ret = snprintf(buffer + offset, buffer_size - offset,
++                "gnb_node_addr4_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
++                network, node->uuid64, node->addr4_ping_latency_usec / 1000
++            );
++            if (ret < 0 || ret >= buffer_size - offset) break;
++            offset += ret;
++        }
 +
-+        ret = snprintf(buffer + offset, buffer_size - offset,
-+            "gnb_node_addr6_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
-+            network, node->uuid64, node->addr6_ping_latency_usec / 1000
-+        );
-+        if (ret < 0 || ret >= buffer_size - offset) break;
-+        offset += ret;
++        if (GNB_NODE_STATUS_IPV6_PONG & node->udp_addr_status) {
++            ret = snprintf(buffer + offset, buffer_size - offset,
++                "gnb_node_addr6_ping_latency_ms{network=\"%s\",node=\"%"PRIu64"\"} %"PRIi64"\n",
++                network, node->uuid64, node->addr6_ping_latency_usec / 1000
++            );
++            if (ret < 0 || ret >= buffer_size - offset) break;
++            offset += ret;
++        }
 +    }
 +}
 +

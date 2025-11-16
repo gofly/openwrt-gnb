@@ -1,7 +1,7 @@
 From 74a8ae36931597281ac660d4ec9e50d7e9cdede1 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sat, 27 Sep 2025 13:31:21 +0800
-Subject: [PATCH 03/10] code optimized
+Subject: [PATCH 03/12] code optimized
 
 ---
  src/es/gnb_es_broadcast_address.c      |   8 +-

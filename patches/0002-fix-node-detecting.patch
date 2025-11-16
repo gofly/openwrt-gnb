@@ -1,7 +1,7 @@
 From bc1ff6c53b98a5be9b7aea320f60292edf882588 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Tue, 7 Oct 2025 21:12:03 +0800
-Subject: [PATCH 02/10] fix node detecting
+Subject: [PATCH 02/12] fix node detecting
 
 ---
  src/gnb_address.c             | 27 ++++++++++++++++++
