@@ -1,7 +1,7 @@
 From 2f7bc77e6d657f32d1ae7f1f097f6efbfbb28cf7 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Fri, 31 Oct 2025 20:33:32 +0800
-Subject: [PATCH 12/12] generate DOT graph
+Subject: [PATCH 12/13] generate DOT graph
 
 ---
  src/gnb_exporter_worker.c | 110 +++++++++++++++++++++++++++++++++-----
