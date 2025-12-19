@@ -1,7 +1,7 @@
 From ffe009f282b90fce3a09aba61bcbf7854bc9a4e1 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Mon, 15 Sep 2025 12:14:43 +0800
-Subject: [PATCH 05/14] add gnb_exporter
+Subject: [PATCH 05/15] add gnb_exporter
 
 ---
  Makefile.Darwin        |  12 +-

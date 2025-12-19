@@ -1,7 +1,7 @@
 From f500ad66702095d466fda6b2456c1451fad31908 Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Fri, 19 Dec 2025 19:20:21 +0800
-Subject: [PATCH 13/14] fix ipv6 unstable
+Subject: [PATCH 13/15] fix ipv6 unstable
 
 ---
  src/gnb_node.c        | 50 +++++++++++++++++++++++++++----------------

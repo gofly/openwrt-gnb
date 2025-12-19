@@ -1,7 +1,7 @@
 From 1493aba508cba6cab65812afdd600a3eb0c907eb Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Thu, 23 Oct 2025 00:00:20 +0800
-Subject: [PATCH 11/14] optimize forwarding
+Subject: [PATCH 11/15] optimize forwarding
 
 ---
  src/gnb_node.c               | 72 +++++++++++++++++-------------------

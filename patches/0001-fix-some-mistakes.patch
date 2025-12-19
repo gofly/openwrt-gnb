@@ -1,7 +1,7 @@
 From 8190c62b0051518cdc2d458c2c13e0382dfc6e7b Mon Sep 17 00:00:00 2001
 From: zhenglixin <lixin.zhenglx@gmail.com>
 Date: Sun, 28 Sep 2025 00:40:13 +0800
-Subject: [PATCH 01/14] fix some mistakes
+Subject: [PATCH 01/15] fix some mistakes
 
 ---
  src/gnb_alloc.c                       |   4 +
