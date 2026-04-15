@@ -701,6 +701,18 @@ void local_node_file_config(gnb_conf_t *conf) {
                 exit(1);
             }
         }
+
+        if ( !strncmp(line_buffer, "node-cache-file", sizeof("node-cache-file")-1) ) {
+
+            num = sscanf(line_buffer, "%32[^ ] %512s", field, conf->node_cache_file);
+
+            if ( 2 != num ) {
+                printf("config %s error in [%s]\n", "node-cache-file", node_conf_file);
+                exit(1);
+            }
+
+        }
+
         if ( !strncmp(line_buffer, "pf-route", sizeof("pf-route")-1) ) {
             num = sscanf(line_buffer, "%32[^ ] %128s", field, conf->pf_route);
             if ( 2 != num ) {
