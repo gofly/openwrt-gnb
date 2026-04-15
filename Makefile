@@ -8,7 +8,7 @@ PKG_LICENSE:=GPLv3
 PKG_LICENSE_FILES:=COPYING
 PKG_MAINTAINER:=Lixin Zheng<lixin.zhenglx@gmail.com>
 
-PKG_BUILD_DEPENDS:=libmbedtls zlib libminiupnpc libnatpmp
+PKG_BUILD_DEPENDS:=libmbedtls
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -17,7 +17,6 @@ define Package/gnb
 	CATEGORY:=Network
 	TITLE:=GNB P2P Virtual Network
 	URL:=https://github.com/gnbdev/opengnb
-	DEPENDS:=+libmbedtls +zlib +libminiupnpc +libnatpmp
 endef
 
 define Package/gnb/description
