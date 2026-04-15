@@ -1,14 +1,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnb
-PKG_VERSION:=1.6.0
+PKG_VERSION:=1.6.4
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPLv3
 PKG_LICENSE_FILES:=COPYING
 PKG_MAINTAINER:=Lixin Zheng<lixin.zhenglx@gmail.com>
 
-PKG_BUILD_DEPENDS:=libmbedtls
+PKG_BUILD_DEPENDS:=libmbedtls zlib libminiupnpc libnatpmp
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -17,7 +17,7 @@ define Package/gnb
 	CATEGORY:=Network
 	TITLE:=GNB P2P Virtual Network
 	URL:=https://github.com/gnbdev/opengnb
-	DEPENDS:=+libmbedtls
+	DEPENDS:=+libmbedtls +zlib +libminiupnpc +libnatpmp
 endef
 
 define Package/gnb/description
