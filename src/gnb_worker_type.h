@@ -38,7 +38,7 @@ typedef int(*gnb_worker_notify_func_t)(gnb_worker_t *gnb_worker);
 
 typedef int(*gnb_worker_notify_func_t)(gnb_worker_t *gnb_worker);
 
-typedef void(*gnb_worker_send_request_addr_frame_func_t)(gnb_worker_t *gnb_index_worker, gnb_node_t *node);
+typedef int(*gnb_worker_send_request_addr_frame_func_t)(gnb_worker_t *gnb_index_worker, gnb_node_t *node);
 
 typedef struct _gnb_worker_t {
 
@@ -67,7 +67,7 @@ typedef struct _gnb_worker_t {
 
 	gnb_worker_send_request_addr_frame_func_t send_request_addr_frame_func;
 
-}gnb_worker_t;
+} gnb_worker_t;
 
 
 typedef struct _gnb_worker_ring_t {
