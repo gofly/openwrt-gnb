@@ -3,7 +3,7 @@ CFLAGS=-O2 -I./src  -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib
 #-D Z_SOLO=0
 LDFLAGS=-lssl -lcrypto
 CLI_LDFLAGS=-L/usr/lib -pthread
-GNB_ES_LDFLAGS=-L/usr/lib -pthread -lssl -lcrypto
+GNB_ES_LDFLAGS=-L/usr/lib -pthread
 
 GNB_CRYPTO=gnb_crypto
 GNB_CTL=gnb_ctl

@@ -48,37 +48,174 @@ int gnb_log_file_rotate(gnb_log_ctx_t *log);
 
 int gnb_log_udp_set_addr4(gnb_log_ctx_t *log, char *ip, uint16_t port4);
 int gnb_log_udp_set_addr6(gnb_log_ctx_t *log, char *ip, uint16_t port6);
-
 int gnb_log_udp_set_addr4_string(gnb_log_ctx_t *log, char *sockaddress4_string);
 
+#define GNB_LOG1(log,log_id,format,...)                                                          \
+        do{                                                                                      \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                   \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                   \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                     \
+                ){                                                                               \
+				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__);   \
+			}                                                                                    \
+        }while(0);
 
-/* 统一的日志宏，减少重复代码 */
-#define GNB_LOG_INTERNAL(log, log_id, log_type, level, format, ...)                              \
-    do {                                                                                         \
-        if (log != NULL && log->output_type != GNB_LOG_OUTPUT_NONE &&                            \
-            (log->config_table[log_id].console_level >= level ||                                 \
-             log->config_table[log_id].file_level    >= level ||                                 \
-             log->config_table[log_id].udp_level     >= level)) {                                \
-            gnb_logf(log, log_type, log_id, level, format, ##__VA_ARGS__);                       \
-        }                                                                                        \
-    } while(0)
 
-#define GNB_LOG1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
-#define GNB_LOG2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
-#define GNB_LOG3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
-#define GNB_LOG4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
-#define GNB_LOG5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_STD, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
+#define GNB_LOG2(log,log_id,format,...)                                                          \
+        do{                                                                                      \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                   \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                   \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                     \
+                ){                                                                               \
+				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__);   \
+			}                                                                                    \
+        }while(0);
 
-#define GNB_DEBUG1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
-#define GNB_DEBUG2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
-#define GNB_DEBUG3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
-#define GNB_DEBUG4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
-#define GNB_DEBUG5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_DEBUG, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
+#define GNB_LOG3(log,log_id,format,...)                                                          \
+        do{                                                                                      \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                   \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                   \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                     \
+                ){                                                                               \
+				gnb_logf(log,GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__);   \
+			}                                                                                    \
+        }while(0);
 
-#define GNB_ERROR1(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL1, format, ##__VA_ARGS__)
-#define GNB_ERROR2(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL2, format, ##__VA_ARGS__)
-#define GNB_ERROR3(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL3, format, ##__VA_ARGS__)
-#define GNB_ERROR4(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL4, format, ##__VA_ARGS__)
-#define GNB_ERROR5(log,log_id,format,...) GNB_LOG_INTERNAL(log, log_id, GNB_LOG_TYPE_ERROR, GNB_LOG_LEVEL5, format, ##__VA_ARGS__)
+
+#define GNB_LOG4(log,log_id,format,...)                                                          \
+        do{                                                                                      \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                   \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                   \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                     \
+                ){                                                                               \
+				gnb_logf(log, GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__);  \
+			}                                                                                    \
+        }while(0);
+
+
+#define GNB_LOG5(log,log_id,format,...)                                                          \
+        do{                                                                                      \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                       \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                   \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                   \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                     \
+                ){                                                                               \
+				gnb_logf(log, GNB_LOG_TYPE_STD, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__);  \
+			}                                                                                    \
+        }while(0);
+
+#define GNB_DEBUG1(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_DEBUG2(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_DEBUG3(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_DEBUG4(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_DEBUG5(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_DEBUG, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_ERROR1(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL1 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL1 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL1)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL1, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_ERROR2(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL2 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL2 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL2)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL2, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_ERROR3(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL3 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL3 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL3)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL3, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_ERROR4(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL4 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL4 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL4)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL4, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
+
+#define GNB_ERROR5(log,log_id,format,...)                                                         \
+        do{                                                                                       \
+			if ( NULL != log && GNB_LOG_OUTPUT_NONE != log->output_type &&                        \
+				 (log->config_table[log_id].console_level >= GNB_LOG_LEVEL5 ||                    \
+                  log->config_table[log_id].file_level    >= GNB_LOG_LEVEL5 ||                    \
+				  log->config_table[log_id].udp_level     >= GNB_LOG_LEVEL5)                      \
+                ){                                                                                \
+				gnb_logf(log, GNB_LOG_TYPE_ERROR, log_id, GNB_LOG_LEVEL5, format, ##__VA_ARGS__); \
+			}                                                                                     \
+        }while(0);
 
 #endif
