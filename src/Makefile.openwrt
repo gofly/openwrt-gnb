@@ -1,0 +1,74 @@
+USE_MBEDTLS ?= 1
+
+CFLAGS=-ffunction-sections -fdata-sections -Wno-unused-result -I./src -I./libs -I./libs/miniupnpc -I./libs/libnatpmp -I./libs/zlib -D NO_GZIP=1 -D GNB_OPENWRT_BUILD=1
+CLI_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+GNB_ES_LDFLAGS=-Wl,--gc-sections -L/usr/lib -pthread
+
+ifeq ($(USE_MBEDTLS),1)
+CFLAGS += -DWITH_MBEDTLS=1
+GNB_ES_LDFLAGS += -lmbedtls -lmbedcrypto -lmbedx509
+else
+GNB_ES_LDFLAGS += -lssl -lcrypto -Wl,-Bdynamic
+endif
+
+ifeq ($(DEBUG),1)
+CFLAGS += -g
+CLI_LDFLAGS += -g
+GNB_ES_LDFLAGS += -g
+else
+CFLAGS += -Os -flto -DNDEBUG
+CLI_LDFLAGS    += -Os -flto -DNDEBUG -s
+GNB_ES_LDFLAGS += -Os -flto -DNDEBUG -s
+endif
+
+GNB_CRYPTO=gnb_crypto
+GNB_CTL=gnb_ctl
+GNB_ES=gnb_es
+GNB_CLI=gnb
+
+include Makefile.openwrt.inc
+
+GNB_CLI_OBJS =                             \
+       ./src/cli/gnb.o                     \
+       ./src/gnb_argv.o                    \
+       ./src/unix/unix_platform.o          \
+       ./src/linux/gnb_drv_linux.o
+
+GNB_ES_OBJS += ./src/unix/unix_platform.o
+
+all: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+
+
+$(GNB_CTL): $(GNB_CTL_OBJS)
+	${CC} -o ${GNB_CTL} ${GNB_CTL_OBJS} ${CLI_LDFLAGS}
+
+
+$(GNB_ES): $(GNB_ES_OBJS) ${CRYPTO_OBJS}
+	${CC} -o ${GNB_ES} ${GNB_ES_OBJS} ${CRYPTO_OBJS} -lnatpmp -lminiupnpc ${GNB_ES_LDFLAGS}
+
+
+$(GNB_CRYPTO): $(CRYPTO_OBJS) ./src/cli/gnb_crypto.o
+	${CC} -o ${GNB_CRYPTO} ./src/cli/gnb_crypto.o ${CRYPTO_OBJS} ${CLI_LDFLAGS}
+
+
+$(GNB_CLI): $(GNB_OBJS) $(GNB_CLI_OBJS) $(GNB_PF_OBJS) ${CRYPTO_OBJS}
+	${CC} -o ${GNB_CLI} ${GNB_OBJS} ${GNB_CLI_OBJS} ${GNB_PF_OBJS} ${CRYPTO_OBJS} -lz ${CLI_LDFLAGS}
+
+
+%.o:%.c
+	${CC} ${CFLAGS} -c -o $@ $<
+
+
+install: ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+	mkdir -p         ./bin/
+	cp ${GNB_CLI}    ./bin/
+	cp ${GNB_CTL}    ./bin/
+	cp ${GNB_CRYPTO} ./bin/
+	cp ${GNB_ES}     ./bin/
+
+
+clean:
+	find . -name "*.o" -exec rm -f {} \;
+	rm -f ${GNB_CLI} ${GNB_CRYPTO} ${GNB_ES} ${GNB_CTL}
+	rm -f core
+	rm -f *.exe
