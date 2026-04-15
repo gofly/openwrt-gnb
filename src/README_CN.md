@@ -265,6 +265,12 @@ GNB 主机之间的非对称数据加密使得 **forward** 节点无法窥探中
 
 ```
 i|0|101.32.178.3|9001
+i|0|38.47.98.200|9001
+i|0|216.24.178.4|9001
+i|0|146.235.226.72|9001
+i|0|167.234.212.122|9001
+i|0|172.235.205.5|9001
+i|0|172.104.91.191|9001
 ```
 
 
@@ -283,8 +289,7 @@ i|0|101.32.178.3|9001
 
 
 ## GNB在OpenWRT上
-
-GNB 支持 OpenWRT 平台,需要用户自行编译。
+Note:注：charleschan<hollidgelongsun157@gmail.com>(https://github.com/orgs/opengnb/people/charleschan2006-alias) 为 OpenGNB 移植到 OpenWRT 平台做出了巨大努力，并提供了技术支持。
 
 
 ## GNB 在 Linux 发行版上

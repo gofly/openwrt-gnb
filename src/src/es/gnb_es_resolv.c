@@ -160,7 +160,6 @@ static void gnb_do_resolv_node_address(gnb_es_ctx *es_ctx, gnb_node_t *node, cha
 void gnb_resolv_address(gnb_es_ctx *es_ctx){
     char *conf_dir = es_ctx->ctl_block->conf_zone->conf_st.conf_dir;
     char address_file[PATH_MAX+NAME_MAX];
-
     snprintf(address_file, PATH_MAX+NAME_MAX, "%s/%s", conf_dir, "address.conf");
 
     // 在解析前清空所有节点的 resolv_address_block
@@ -188,28 +187,23 @@ void gnb_resolv_address(gnb_es_ctx *es_ctx){
     if ( NULL==file ) {
         return;
     }
-
     char line_buffer[1024+1];
     char attrib_string[16+1];
     gnb_uuid_t uuid64;
     char host_string[256+1];
     uint16_t port = 0;
-    int num;
+        int num;
+        int ret;
 
     do{
-
         num = fscanf(file,"%1024s\n",line_buffer);
-
         if ( EOF == num ) {
             break;
         }
-
         if ('#' == line_buffer[0]) {
             continue;
         }
-
-        int ret = gnb_test_field_separator(line_buffer);
-
+        ret = gnb_test_field_separator(line_buffer);
         if ( GNB_CONF_FIELD_SEPARATOR_TYPE_SLASH == ret ) {
             num = sscanf(line_buffer,"%16[^/]/%llu/%256[^/]/%hu\n", attrib_string, &uuid64, host_string, &port);
         } else if ( GNB_CONF_FIELD_SEPARATOR_TYPE_VERTICAL == ret ) {
@@ -217,21 +211,16 @@ void gnb_resolv_address(gnb_es_ctx *es_ctx){
         } else {
             num = 0;
         }
-
         if ( 4 != num ) {
             continue;
         }
-
         if ( 0 == port ) {
             continue;
         }
-
         if ( NULL == check_domain_name(host_string) ) {
             continue;
         }
-
         node = (gnb_node_t *)GNB_HASH32_UINT64_GET_PTR(es_ctx->uuid_node_map, uuid64);
-
         if ( NULL == node ) {
             continue;
         }
@@ -257,40 +246,27 @@ void gnb_resolv_address(gnb_es_ctx *es_ctx){
     } while(1);
 
     fclose(file);
-
 }
 
 /*
 dig -6 TXT +short o-o.myaddr.l.google.com @ns1.google.com | awk -F'"' '{ print $2}'
 */
-void gnb_load_wan_ipv6_address(gnb_es_ctx *es_ctx){
-
+void gnb_load_wan_ipv6_address(gnb_es_ctx *es_ctx) {
     gnb_log_ctx_t *log = es_ctx->log;
-
     if ( NULL == es_ctx->wan_address6_file ) {
         return;
     }
-
     FILE *file;
-
     file = fopen(es_ctx->wan_address6_file,"r");
-
     if ( NULL == file ) {
         return;
     }
-
     gnb_conf_t *conf = &es_ctx->ctl_block->conf_zone->conf_st;
-
     char host_string[46+1];
-
     int num;
-
     num = fscanf(file,"%46s\n",host_string);
-
     int s;
-
     s = inet_pton(AF_INET6, host_string, (struct in_addr *)&es_ctx->ctl_block->core_zone->wan6_addr);
-
     if (s <= 0) {
         memset(&es_ctx->ctl_block->core_zone->wan6_addr,0,16);
         es_ctx->ctl_block->core_zone->wan6_port = 0;
@@ -298,5 +274,4 @@ void gnb_load_wan_ipv6_address(gnb_es_ctx *es_ctx){
         es_ctx->ctl_block->core_zone->wan6_port = htons(conf->udp6_ports[0]);
         GNB_LOG1(log, GNB_LOG_ID_ES_RESOLV, "load wan address6[%s:%d]\n", host_string, conf->udp6_ports[0]);
     }
-
 }

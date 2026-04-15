@@ -56,10 +56,12 @@ void* gnb_heap_alloc(gnb_heap_t *gnb_heap, uint32_t size) {
         printf("gnb_heap_alloc fail heap is full\n");
         return NULL;
     }
+	/*
     if ( size > (uint32_t)(1024l * 1024l * 1024l * 4) - 1 ) {
 		printf("gnb_heap_alloc fail  alloc memory > %u \n", (uint32_t)(1024l * 1024l * 1024l * 4) - 1);
         return NULL;
     }
+	*/
     gnb_heap_fragment_t *fragment = malloc( sizeof(gnb_heap_fragment_t) + sizeof(unsigned char) * size );
     if ( NULL == fragment ) {
 		printf("gnb_heap_alloc error  malloc false\n");
@@ -111,10 +113,6 @@ void gnb_heap_free(gnb_heap_t *gnb_heap, void *p){
 finish:
 
     gnb_heap->fragment_nums--;
-
-    // 清理悬挂指针，防止在后续操作中被错误地访问
-    gnb_heap->fragment_list[gnb_heap->fragment_nums] = NULL;
-
     free(fragment);
 }
 
