@@ -458,6 +458,9 @@ gnb_conf_t* gnb_argv(int argc,char *argv[]) {
         case SET_FWMARK:
             conf->fwmark = (uint32_t)strtoul(optarg, NULL, 10);
             break;
+        case SET_EXPORTER_PORT:
+            conf->exporter_port = (uint16_t)strtoul(optarg, NULL, 10);
+            break;
         case SET_SYSTEMD_DAEMON:
             conf->systemd_daemon = 1;
             break;
@@ -965,6 +968,8 @@ static void show_useage(int argc,char *argv[]) {
 
 #if defined(__linux__)
     printf("      --systemd                     systemd daemon\n");
+    printf("      --fwmark                      outbound fwmark\n");
+    printf("      --exporter-port               listening port of exporter, 0 means disabled\n");
 #endif
     
     printf("      --node-worker-queue           node  worker queue length\n");
