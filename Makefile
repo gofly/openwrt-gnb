@@ -1,14 +1,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=gnb
-PKG_VERSION:=master
+PKG_VERSION:=1.6.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=GPLv3
 PKG_LICENSE_FILES:=COPYING
 PKG_MAINTAINER:=Lixin Zheng<lixin.zhenglx@gmail.com>
 
-PKG_BUILD_DEPENDS:=mbedtls zlib libminiupnpc libnatpmp
+PKG_BUILD_DEPENDS:=libmbedtls
 
 include $(INCLUDE_DIR)/package.mk
 
